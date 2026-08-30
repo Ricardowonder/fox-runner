@@ -40,14 +40,44 @@ const GROUND = {
   underfill: "#4a2f17", // dark soil behind/below everything
 };
 
+/* Jump physics, tuned so that a plain TAP is always a full, safe jump:
+ * young players tap rather than hold, and a tap must clear every obstacle
+ * available at the speed it can appear. Holding adds extra lift on top
+ * (softer gravity for a moment) for high acorns - never the other way
+ * round, so a quick press can never produce a fatal little hop.
+ */
 const PHYSICS = {
-  gravityUp: 2400,     // px/s^2 while rising
-  gravityDown: 2800,   // px/s^2 while falling (snappier landing)
-  jumpVelocity: -760,  // px/s takeoff
-  jumpCutFactor: 0.45, // vy multiplier when Space released mid-rise
+  apex: 132,             // peak height of a tap jump, px (constant)
+  riseFrac: 0.52,        // share of airtime spent rising (fall is snappier)
+  // Airtime scales with game speed so the jump carries the fox a similar
+  // DISTANCE at any speed. Without this the opening is the hardest part
+  // of the game: a slow scroll means a short hop and a cruelly narrow
+  // timing window, which is exactly what young players struggle with.
+  airtimeSlow: 1.00,     // seconds, at slowSpeed
+  airtimeFast: 0.72,     // seconds, at fastSpeed
+  slowSpeed: 215,
+  fastSpeed: 515,
+  holdGravityFactor: 0.62, // gravity multiplier while the button is held...
+  holdTime: 0.14,          // ...for this long -> a noticeably higher jump
 };
 
+// Jump arc for a given scroll speed: constant apex, longer airtime when
+// the game is slow. Returns takeoff velocity and the two gravities.
+function jumpArc(speed) {
+  const p = PHYSICS;
+  const t = (speed - p.slowSpeed) / (p.fastSpeed - p.slowSpeed);
+  const airtime = p.airtimeSlow + (p.airtimeFast - p.airtimeSlow) * Math.min(Math.max(t, 0), 1);
+  const rise = airtime * p.riseFrac;
+  const fall = airtime - rise;
+  return {
+    v: (2 * p.apex) / rise,
+    gravityUp: (2 * p.apex) / (rise * rise),
+    gravityDown: (2 * p.apex) / (fall * fall),
+  };
+}
+
 const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
+const LEVEL_GOAL = 4000;           // reaching this finishes level 1
 
 // Fox drawn CONTENT size (the visible artwork, not the padded PNG canvas).
 const FOX_H = 62;
@@ -151,14 +181,14 @@ const OBSTACLE_TYPES = {
   rock: {
     src: "assets/obstacles/rock.png",
     h: 40, sizeClass: "medium", animal: false, pairable: true,
-    weight: 2.5, availableFrom: 400, sink: 4,
+    weight: 2.5, availableFrom: 500, sink: 4,
     trim: { sx: 14, sy: 14, sw: 484, sh: 304 },
     hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
   },
   log: {
     src: "assets/obstacles/log.png",
     h: 34, sizeClass: "medium", animal: false, pairable: true,
-    weight: 3, availableFrom: 800, sink: 4,
+    weight: 3, availableFrom: 1000, sink: 4,
     trim: { sx: 16, sy: 26, sw: 482, sh: 200 },
     hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 },
   },
@@ -166,7 +196,7 @@ const OBSTACLE_TYPES = {
     src: "assets/obstacles/stump.png",
     h: 46, sizeClass: "large", animal: false, pairable: false,
     trim: { sx: 34, sy: 36, sw: 454, sh: 278 },
-    weight: 2, availableFrom: 1200, sink: 5,
+    weight: 2, availableFrom: 1500, sink: 5,
     hitbox: { left: 0.12, right: 0.18, top: 0.10, bottom: 0.02 },
   },
 };
@@ -184,34 +214,38 @@ const OBSTACLE_HIDE = { noticeDistance: 190, overhead: 105, hold: 0.45 };
  * so these anchors correspond to ~0s / ~15s / ~45s / ~85s / ~2min survived.
  */
 const DIFFICULTY = {
-  maxSpeed: 660,
+  maxSpeed: 520,
   bands: [
-    // A perceptible step roughly every 500 score: faster, denser, more
-    // patterns. Full pressure arrives by ~4000 rather than 8000, so the
-    // 2500-4000 stretch keeps ramping instead of plateauing.
+    // Level 1 runs 0 -> LEVEL_GOAL. It opens very slow and sparse so a
+    // young player can learn the timing, then climbs steadily: faster,
+    // tighter gaps, and more elaborate patterns fading in one at a time.
     //          px/s   gap between patterns   pattern weights
-    { score: 0,    speed: 300, gapMin: 1.05, gapMax: 1.90,
+    { score: 0,    speed: 215, gapMin: 1.85, gapMax: 2.90,
       weights: { single: 1, spacedPair: 0,    closePair: 0,    spacedTriple: 0,    comboTriple: 0 } },
-    { score: 500,  speed: 380, gapMin: 0.95, gapMax: 1.60,
-      weights: { single: 1, spacedPair: 0.25, closePair: 0,    spacedTriple: 0,    comboTriple: 0 } },
-    { score: 1000, speed: 440, gapMin: 0.85, gapMax: 1.40,
-      weights: { single: 1, spacedPair: 0.40, closePair: 0.20, spacedTriple: 0,    comboTriple: 0 } },
-    { score: 1500, speed: 490, gapMin: 0.76, gapMax: 1.25,
-      weights: { single: 1, spacedPair: 0.55, closePair: 0.35, spacedTriple: 0.12, comboTriple: 0 } },
-    { score: 2000, speed: 530, gapMin: 0.68, gapMax: 1.10,
-      weights: { single: 1, spacedPair: 0.65, closePair: 0.50, spacedTriple: 0.22, comboTriple: 0.12 } },
-    { score: 2500, speed: 565, gapMin: 0.62, gapMax: 1.00,
-      weights: { single: 1, spacedPair: 0.75, closePair: 0.65, spacedTriple: 0.32, comboTriple: 0.25 } },
-    { score: 3000, speed: 595, gapMin: 0.55, gapMax: 0.88,
-      weights: { single: 1, spacedPair: 0.85, closePair: 0.80, spacedTriple: 0.42, comboTriple: 0.40 } },
-    { score: 4000, speed: 660, gapMin: 0.46, gapMax: 0.74,
-      weights: { single: 1, spacedPair: 0.90, closePair: 0.95, spacedTriple: 0.50, comboTriple: 0.60 } },
+    { score: 250,  speed: 235, gapMin: 1.70, gapMax: 2.70,
+      weights: { single: 1, spacedPair: 0,    closePair: 0,    spacedTriple: 0,    comboTriple: 0 } },
+    { score: 500,  speed: 260, gapMin: 1.55, gapMax: 2.45,
+      weights: { single: 1, spacedPair: 0,    closePair: 0,    spacedTriple: 0,    comboTriple: 0 } },
+    { score: 1000, speed: 300, gapMin: 1.35, gapMax: 2.15,
+      weights: { single: 1, spacedPair: 0.15, closePair: 0,    spacedTriple: 0,    comboTriple: 0 } },
+    { score: 1500, speed: 340, gapMin: 1.18, gapMax: 1.90,
+      weights: { single: 1, spacedPair: 0.30, closePair: 0,    spacedTriple: 0,    comboTriple: 0 } },
+    { score: 2000, speed: 380, gapMin: 1.02, gapMax: 1.65,
+      weights: { single: 1, spacedPair: 0.45, closePair: 0.15, spacedTriple: 0,    comboTriple: 0 } },
+    { score: 2500, speed: 415, gapMin: 0.90, gapMax: 1.45,
+      weights: { single: 1, spacedPair: 0.55, closePair: 0.30, spacedTriple: 0.10, comboTriple: 0 } },
+    { score: 3000, speed: 450, gapMin: 0.80, gapMax: 1.30,
+      weights: { single: 1, spacedPair: 0.65, closePair: 0.45, spacedTriple: 0.20, comboTriple: 0.10 } },
+    { score: 3500, speed: 485, gapMin: 0.73, gapMax: 1.18,
+      weights: { single: 1, spacedPair: 0.72, closePair: 0.55, spacedTriple: 0.28, comboTriple: 0.18 } },
+    { score: 4000, speed: 515, gapMin: 0.68, gapMax: 1.08,
+      weights: { single: 1, spacedPair: 0.78, closePair: 0.65, spacedTriple: 0.32, comboTriple: 0.25 } },
   ],
 };
 
 // Gap (seconds of travel) between obstacles inside spaced sequences —
 // enough room to land, re-read, and jump again.
-const SEQUENCE_GAP = { min: 0.58, max: 0.78 };
+const SEQUENCE_GAP = { min: 0.72, max: 0.95 };
 const CLOSE_PAIR_MIN_GAP = 30;      // px of daylight between a close pair
 const CLOSE_PAIR_SAFETY = 0.78;     // fraction of theoretical clearance we allow
 
@@ -236,7 +270,7 @@ const ACORN = {
   // jump the player must make anyway collects them — building ammo before
   // the dog arrives. Past it, placement goes random and catching becomes
   // a choice.
-  guidedUntil: 1000,
+  guidedUntil: 1500,
   guidedHeight: 62,      // acorn center this far above the obstacle's top
   guidedMaxUp: 118,      // ...but never higher than the jump arc reaches
 };
@@ -250,7 +284,7 @@ const ACORN = {
  * its canvas at a different real-world scale.
  */
 const DOG = {
-  availableFrom: 500,    // score at which dogs start appearing
+  availableFrom: 700,    // score at which dogs start appearing
   gapMin: 2600,          // px of travel between dog encounters
   gapMax: 4800,
   frames: {
@@ -294,8 +328,7 @@ const DOG = {
   // from 4000 — if you can't clear them with acorns, they accumulate.
   packSizes: [
     { score: 0, max: 1 },
-    { score: 2000, max: 2 },
-    { score: 4000, max: 3 },
+    { score: 2500, max: 2 },
   ],
   packStagger: 65, // px: each extra pack member hangs this much further back
   // In pack territory dogs spawn closer together, and each chaser burns
@@ -331,18 +364,23 @@ const BIRD = {
   trim: { sx: 20, sy: 0, sw: 480, sh: 327 },
   flapFps: 14,
   w: 48, h: 33,
-  availableFrom: 1250,   // score at which bluebirds start appearing
-  gapMin: 1900,          // px of travel between bird spawns
-  gapMax: 3800,
-  speedFactor: 1.12,     // flies a little faster than the ground scrolls
+  availableFrom: 1600,   // score at which bluebirds start appearing
+  gapMin: 2400,          // px of travel between bird spawns
+  gapMax: 4600,
+  // Flies at exactly the scroll speed: any faster and a bird that spawned
+  // in a clear corridor drifts into an obstacle before reaching the fox,
+  // turning a forced jump into an unavoidable collision.
+  speedFactor: 1.0,
   altMin: 88,            // center height above the surface; the minimum
   altMax: 135,           // keeps it clear of a grounded fox (62 tall)
   bobAmp: 7,             // gentle sine bob
   bobRate: 3.5,
   // No obstacle/dog/acorn may sit in this corridor around the spawn point,
   // so a bird never crosses right where a jump is being forced.
-  corridorBehind: 250,
-  corridorAhead: 160,
+  // Wide enough to cover a whole jump arc either side, so a bird is never
+  // overhead while the fox is committed to clearing something.
+  corridorBehind: 420,
+  corridorAhead: 240,
   hitbox: { left: 0.14, right: 0.12, top: 0.18, bottom: 0.18 },
 };
 
@@ -390,26 +428,25 @@ function difficultyAt(score) {
 // ---------------------------------------------------------------------------
 
 function jumpApexHeight() {
-  const v = -PHYSICS.jumpVelocity;
-  return (v * v) / (2 * PHYSICS.gravityUp);
+  return PHYSICS.apex;
 }
 
-// Seconds a full (uncut) jump spends above height y.
-function timeAboveHeight(y) {
-  const v = -PHYSICS.jumpVelocity;
-  const apex = jumpApexHeight();
+// Seconds a tap jump spends above height y, at the given scroll speed.
+function timeAboveHeight(y, speed) {
+  const apex = PHYSICS.apex;
   if (y >= apex) return 0;
-  const riseTotal = v / PHYSICS.gravityUp;
+  const arc = jumpArc(speed);
+  const riseTotal = arc.v / arc.gravityUp;
   // Rising: solve v*t - 0.5*gUp*t^2 = y for the earlier root.
-  const t1 = (v - Math.sqrt(v * v - 2 * PHYSICS.gravityUp * y)) / PHYSICS.gravityUp;
-  const fallAbove = Math.sqrt((2 * (apex - y)) / PHYSICS.gravityDown);
+  const t1 = (arc.v - Math.sqrt(arc.v * arc.v - 2 * arc.gravityUp * y)) / arc.gravityUp;
+  const fallAbove = Math.sqrt((2 * (apex - y)) / arc.gravityDown);
   return (riseTotal - t1) + fallAbove;
 }
 
 // Max horizontal span (obstacle widths + gap) a single jump can carry the
 // fox's hitbox across, above obstacles of height obstacleH, at given speed.
 function maxSingleJumpSpan(speed, obstacleH, foxHitboxW) {
-  const clearance = timeAboveHeight(obstacleH + 8); // 8px of headroom
+  const clearance = timeAboveHeight(obstacleH + 8, speed); // 8px of headroom
   return speed * clearance * CLOSE_PAIR_SAFETY - foxHitboxW;
 }
 
@@ -562,6 +599,9 @@ class Fox {
     this.onGround = true;
     this.animTime = 0;
     this.dead = false;
+    this.holding = false;
+    this.holdElapsed = 0;
+    this.arc = null;
     this.throwTime = null; // non-null while the throw animation plays
   }
 
@@ -569,22 +609,30 @@ class Fox {
     this.throwTime = 0;
   }
 
-  jump() {
+  jump(speed) {
     if (this.onGround && !this.dead) {
-      this.vy = PHYSICS.jumpVelocity;
+      this.arc = jumpArc(speed || DIFFICULTY.bands[0].speed);
+      this.vy = -this.arc.v;
       this.onGround = false;
+      this.holding = true;   // extra lift while the button stays down
+      this.holdElapsed = 0;
     }
   }
 
-  cutJump() {
-    if (!this.onGround && this.vy < 0) {
-      this.vy *= PHYSICS.jumpCutFactor;
-    }
+  // Button released: stop adding lift. The jump already in flight keeps
+  // its full arc, so letting go early is never punished.
+  releaseJump() {
+    this.holding = false;
   }
 
   update(dt, speed) {
     if (!this.onGround) {
-      const g = this.vy < 0 ? PHYSICS.gravityUp : PHYSICS.gravityDown;
+      const arc = this.arc || jumpArc(speed);
+      let g = this.vy < 0 ? arc.gravityUp : arc.gravityDown;
+      if (this.holding && this.vy < 0 && this.holdElapsed < PHYSICS.holdTime) {
+        this.holdElapsed += dt;
+        g *= PHYSICS.holdGravityFactor;
+      }
       this.vy += g * dt;
       this.y += this.vy * dt;
       if (this.y >= this.groundY - this.h) {
@@ -1079,15 +1127,21 @@ class BirdSpawner {
     this.distanceUntilNext = BIRD.gapMin;
   }
 
-  update(dt, speed, score, birds, obstacles, dogs, acorns, frames) {
+  update(dt, speed, score, birds, obstacles, dogs, acorns, spawner, frames) {
     if (score < BIRD.availableFrom) return;
     this.distanceUntilNext -= speed * dt;
     if (this.distanceUntilNext > 0) return;
 
+    // One threat at a time: no birds during an active dog chase.
+    if (dogs.some((d) => d.state !== "sleeping" && d.state !== "stunned")) {
+      this.distanceUntilNext = 200;
+      return;
+    }
     const spawnX = GAME_W + 40;
     const inCorridor = (x, w) =>
       x + w > spawnX - BIRD.corridorBehind && x < spawnX + BIRD.corridorAhead;
     if (
+      spawner.distanceUntilNext < 220 || // an obstacle is about to appear
       obstacles.some((o) => inCorridor(o.x, o.w)) ||
       dogs.some((d) => d.state === "sleeping" && inCorridor(d.x, d.w)) ||
       acorns.some((a) => inCorridor(a.x, a.w))
@@ -1097,6 +1151,10 @@ class BirdSpawner {
     }
     const centerY = this.groundY - (BIRD.altMin + Math.random() * (BIRD.altMax - BIRD.altMin));
     birds.push(new Bird(spawnX, centerY, frames));
+    // Hold obstacles back too: one spawned just behind the bird would
+    // force a jump straight into it, since both now travel at the same
+    // speed and stay side by side all the way to the fox.
+    spawner.distanceUntilNext = Math.max(spawner.distanceUntilNext, BIRD.corridorBehind);
     this.distanceUntilNext = BIRD.gapMin + Math.random() * (BIRD.gapMax - BIRD.gapMin);
   }
 }
@@ -1431,17 +1489,17 @@ class Game {
     document.addEventListener("keydown", (e) => {
       if (e.code === "Enter" || e.code === "NumpadEnter") {
         e.preventDefault();
-        if (this.state === "ready" || this.state === "gameover") this.startRun();
+        if (this.state !== "running") this.startRun();
       } else if (e.code === "Space") {
         e.preventDefault();
-        if (this.state === "running" && !e.repeat) this.fox.jump();
+        if (this.state === "running" && !e.repeat) this.fox.jump(this.speed);
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
         if (this.state === "running" && !e.repeat) this.throwAcorn();
       }
     });
     document.addEventListener("keyup", (e) => {
-      if (e.code === "Space" && this.state === "running") this.fox.cutJump();
+      if (e.code === "Space") this.fox.releaseJump();
     });
 
     this.bindTouchButtons();
@@ -1463,13 +1521,13 @@ class Game {
       if (this.state === "running") action();
       else this.tryStartFromButton();
     };
-    jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump()));
+    jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump(this.speed)));
     throwBtn.addEventListener("pointerdown", press(() => this.throwAcorn()));
 
-    // Releasing the jump button cuts the jump short, like releasing Space.
+    // Releasing the jump button just stops the extra lift, like Space.
     const release = (e) => {
       e.preventDefault();
-      if (this.state === "running") this.fox.cutJump();
+      this.fox.releaseJump();
     };
     jumpBtn.addEventListener("pointerup", release);
     jumpBtn.addEventListener("pointercancel", release);
@@ -1488,6 +1546,7 @@ class Game {
   tryStartFromButton() {
     if (this.state === "ready") this.startRun();
     else if (this.state === "gameover" && performance.now() - this.gameOverAt > 600) this.startRun();
+    else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.startRun();
   }
 
   startRun() {
@@ -1518,6 +1577,16 @@ class Game {
     this.pendingRelease = THROW_ANIM.releaseAt;
   }
 
+  completeLevel() {
+    this.state = "levelcomplete";
+    this.levelDoneAt = performance.now();
+    this.fox.releaseJump();
+    if (this.score > this.hiScore) {
+      this.hiScore = this.score;
+      writeHiScore(this.hiScore);
+    }
+  }
+
   endRun() {
     this.state = "gameover";
     this.gameOverAt = performance.now();
@@ -1544,6 +1613,11 @@ class Game {
     this.distance += this.speed * dt;
     this.scroll += this.speed * dt;
     this.score = Math.floor(this.distance / SCORE_DISTANCE_DIVISOR);
+    if (this.score >= LEVEL_GOAL) {
+      this.score = LEVEL_GOAL;
+      this.completeLevel();
+      return;
+    }
 
     this.fox.update(dt, this.speed);
     const obstacleCountBefore = this.obstacles.length;
@@ -1579,7 +1653,7 @@ class Game {
     this.shots = this.shots.filter((s) => !s.dead);
     this.birdSpawner.update(
       dt, this.speed, this.score, this.birds,
-      this.obstacles, this.dogDirector.dogs, this.acorns, this.images.birdFly
+      this.obstacles, this.dogDirector.dogs, this.acorns, this.spawner, this.images.birdFly
     );
     for (const b of this.birds) b.update(dt, this.speed);
     this.birds = this.birds.filter((b) => !b.isOffscreen());
@@ -1860,6 +1934,11 @@ class Game {
       return;
     }
 
+    if (this.state === "levelcomplete") {
+      this.drawLevelComplete();
+      return;
+    }
+
     // Game over: hold the caught moment for a beat, then cut to the
     // dedicated game-over page.
     if (this.state === "gameover" && performance.now() - this.gameOverAt > 800) {
@@ -1875,6 +1954,41 @@ class Game {
     this.fox.draw(ctx, this.state);
     for (const shot of this.shots) shot.draw(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
+    this.drawHud();
+  }
+
+  /* Level-complete page: the woodland scene held still with the fox
+   * standing proud, and the run's tally on top. Deliberately warm and
+   * calm - finishing the level should feel nothing like being caught.
+   */
+  drawLevelComplete() {
+    const { ctx } = this;
+    this.drawBackground();
+    for (const ob of this.obstacles) ob.draw(ctx);
+    for (const ac of this.acorns) ac.draw(ctx);
+    this.fox.draw(ctx, "ready");
+    ctx.save();
+    ctx.fillStyle = "rgba(24, 40, 20, 0.55)";
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const line = (text, font, y, alpha) => {
+      ctx.font = font;
+      ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+      ctx.strokeStyle = "rgba(30, 45, 25, 0.9)";
+      ctx.lineWidth = 5;
+      ctx.strokeText(text, GAME_W / 2, y);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+      ctx.fillText(text, GAME_W / 2, y);
+    };
+    line("WELL DONE!", "bold 44px 'Courier New', Courier, monospace", 84);
+    line("Level 1 complete", "bold 22px 'Courier New', Courier, monospace", 128);
+    line(`Acorns collected: ${this.acornCount}`,
+         "bold 19px 'Courier New', Courier, monospace", 168);
+    if (this.blinkTime % 1 < 0.65) {
+      line("Press ENTER to play again", "bold 19px 'Courier New', Courier, monospace", 214);
+    }
+    ctx.restore();
     this.drawHud();
   }
 
