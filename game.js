@@ -124,9 +124,12 @@ function makeTheme(dir, label, opts) {
     },
     ground: { grass: p("ground", "grass.png"), dirt: p("ground", "dirt.png") },
     pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
-    // Optional: drop foxhole.png into the theme's pages/ folder and the
-    // drawn placeholder burrow is replaced by the artwork.
-    foxhole: p("pages", "foxhole.png"),
+    // The burrow the fox dives into to finish a level.
+    foxhole: p("scenery", "fox_hole.png"),
+    // Backdrop for the success page. Deliberately the artwork WITHOUT
+    // baked-in wording, so the title and the run's tally can be drawn
+    // live over it and read correctly for whichever level just ended.
+    levelCompleteBg: q("pages", "levelComplete", "level_one_complete_art_clean.png"),
     // Per-theme sprite tweaks, merged over the shared gameplay config in
     // OBSTACLE_TYPES / BIRD. Only geometry belongs here - never spacing or
     // speed, so the difficulty tuning stays identical across levels.
@@ -338,8 +341,9 @@ const PROGRESS = {
 const FINISH = {
   holeLeadIn: 1.6,  // seconds of clear ground before the burrow appears
   diveTime: 0.55,   // seconds to disappear down it
-  holeW: 96,
+  holeW: 132,
   holeH: 34,
+  trim: { sx: 6, sy: 81, sw: 500, sh: 256 }, // content box of fox_hole.png
 };
 
 // Fox drawn CONTENT size (the visible artwork, not the padded PNG canvas).
@@ -857,6 +861,7 @@ function loadAssets() {
   }
   // Optional art: absent files simply leave the key undefined.
   jobs.push(loadImage(THEME.foxhole).then((img) => { images.foxhole = img; }, () => {}));
+  jobs.push(loadImage(THEME.levelCompleteBg).then((img) => { images.levelCompleteBg = img; }, () => {}));
   return Promise.all(jobs).then(() => images);
 }
 
@@ -1982,6 +1987,8 @@ class Game {
     this.score = this.checkpoint.score;
     this.distance = this.score * SCORE_DISTANCE_DIVISOR;
     this.acornCount = 0; // acorns are lost on death, wherever you restart
+    this.dogsStopped = 0;
+    this.acornsCollected = 0;
     this.checkpointFlash = 0;
     this.speed = DIFFICULTY.bands[0].speed;
     this.fox.reset();
@@ -2175,6 +2182,7 @@ class Game {
         if (d.state !== "stunned" && intersects(shot.getBox(), d.getShotBox())) {
           shot.dead = true;
           d.stun();
+          this.dogsStopped++;
           break;
         }
       }
@@ -2213,6 +2221,7 @@ class Game {
         if (!ac.collected && intersects(foxBox, ac.getHitbox())) {
           ac.collected = true;
           this.acornCount++;
+          this.acornsCollected++;
         }
       }
     }
@@ -2303,8 +2312,11 @@ class Game {
     const w = FINISH.holeW;
     const h = FINISH.holeH;
     if (img) {
-      const dh = w * (img.height / img.width);
-      ctx.drawImage(img, x - w / 2, this.groundY + 6 - dh, w, dh);
+      const t = FINISH.trim;
+      const dh = w / (t.sw / t.sh);
+      // Sunk a little into the grass, like every other ground sprite.
+      ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh,
+        x - w / 2, this.groundY + 10 - dh, w, dh);
       return;
     }
     ctx.save();
@@ -2642,36 +2654,52 @@ class Game {
    */
   drawLevelComplete() {
     const { ctx } = this;
-    this.drawBackground();
-    for (const ob of this.obstacles) ob.draw(ctx);
-    for (const ac of this.acorns) ac.draw(ctx);
-    this.fox.draw(ctx, "ready");
+    const img = this.images.levelCompleteBg;
+    if (img) {
+      // Cover-crop the artwork across the canvas.
+      const scale = Math.max(GAME_W / img.width, GAME_H / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, (GAME_W - dw) / 2, (GAME_H - dh) / 2, dw, dh);
+    } else {
+      this.drawBackground();
+      this.fox.draw(ctx, "ready");
+      ctx.fillStyle = "rgba(24, 40, 20, 0.55)";
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+    }
+
     ctx.save();
-    ctx.fillStyle = "rgba(24, 40, 20, 0.55)";
-    ctx.fillRect(0, 0, GAME_W, GAME_H);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const line = (text, font, y, alpha) => {
+    const line = (text, font, y, fill) => {
       ctx.font = font;
-      ctx.globalAlpha = alpha === undefined ? 1 : alpha;
-      ctx.strokeStyle = "rgba(30, 45, 25, 0.9)";
+      ctx.strokeStyle = "rgba(30, 45, 25, 0.92)";
       ctx.lineWidth = 5;
       ctx.strokeText(text, GAME_W / 2, y);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+      ctx.fillStyle = fill || "rgba(255, 255, 255, 0.97)";
       ctx.fillText(text, GAME_W / 2, y);
     };
     const next = LEVELS[levelIndex + 1];
-    line("SAFELY HOME!", "bold 44px 'Courier New', Courier, monospace", 80);
-    line(`${THEME.label} complete`, "bold 22px 'Courier New', Courier, monospace", 124);
-    line(`Acorns collected: ${this.acornCount}`,
-         "bold 19px 'Courier New', Courier, monospace", 162);
+    line(`${THEME.label.toUpperCase()} COMPLETE!`,
+         "bold 40px 'Courier New', Courier, monospace", 46);
+    line(next ? `Get ready for the ${THEMES[next.theme].label}` : "You made it home",
+         "bold 17px 'Courier New', Courier, monospace", 80);
+
+    // The run's tally, on a panel sized to sit between the sulking dog on
+    // the left and the celebrating fox on the right rather than across them.
+    roundRectPath(ctx, 258, 104, 384, 58, 10);
+    ctx.fillStyle = "rgba(24, 40, 20, 0.62)";
+    ctx.fill();
+    line(`Acorns collected  ${this.acornsCollected}`,
+         "bold 18px 'Courier New', Courier, monospace", 122, "#ffe08a");
+    line(`Dogs sent packing  ${this.dogsStopped}`,
+         "bold 18px 'Courier New', Courier, monospace", 146, "#ffe08a");
+
     if (this.blinkTime % 1 < 0.65) {
-      line(next ? `Press ENTER for the ${THEMES[next.theme].label}`
-                : "Press ENTER to play again",
-           "bold 19px 'Courier New', Courier, monospace", 208);
+      line("Press ENTER to continue",
+           "bold 18px 'Courier New', Courier, monospace", 268);
     }
     ctx.restore();
-    this.drawHud();
   }
 
   // Game-over page: the smug dog / sheepish fox art as a full-canvas
