@@ -315,8 +315,10 @@ function levelGoal() { return LEVELS[levelIndex].goal; }
  */
 const PROGRESS = {
   stages: 3,
-  x: 180, w: 540, y: 284, h: 9,
-  markerR: 6,
+  y: 283, h: 11,
+  markerR: 6.5,
+  edgeMargin: 16, // from the canvas edge when nothing is in the way
+  buttonGap: 10,  // clearance either side of a thumb button
 };
 
 const FINISH = {
@@ -1853,6 +1855,7 @@ class Game {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.imageSmoothingEnabled = true;
     this.ctx.imageSmoothingQuality = "high";
+    this.progressBounds = null; // re-measured against the buttons on next draw
   }
 
   bindInput() {
@@ -2042,6 +2045,7 @@ class Game {
   }
 
   frame(time) {
+    this.frameCount = (this.frameCount || 0) + 1;
     try {
       const dt = Math.min((time - this.lastTime) / 1000, 0.05); // clamp tab-switch spikes
       this.lastTime = time;
@@ -2281,8 +2285,44 @@ class Game {
   /* The progress bar in the dirt: how far through the level you are, the
    * two stage markers that bank your place, and the burrow at the end.
    */
+  /* The bar runs as wide as the thumb buttons allow. Their size is set in
+   * vw units, so they cover proportionally more of the canvas on a small
+   * screen; measuring them beats guessing a fixed inset that is either
+   * too timid on a desktop or overlapped on a phone.
+   */
+  computeProgressBounds() {
+    let left = PROGRESS.edgeMargin;
+    let right = GAME_W - PROGRESS.edgeMargin;
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width > 0) {
+      const toCanvas = (clientX) => (clientX - rect.left) * (GAME_W / rect.width);
+      const clear = (id, side) => {
+        const el = document.getElementById(id);
+        if (!el || !el.offsetParent) return; // absent or hidden
+        const r = el.getBoundingClientRect();
+        if (!r.width) return;
+        if (side === "left") left = Math.max(left, toCanvas(r.right) + PROGRESS.buttonGap);
+        else right = Math.min(right, toCanvas(r.left) - PROGRESS.buttonGap);
+      };
+      clear("btn-jump", "left");
+      clear("btn-throw", "right");
+    }
+    if (right - left < 160) { // degenerate layout: fall back to a centred bar
+      left = GAME_W * 0.2;
+      right = GAME_W * 0.8;
+    }
+    this.progressBounds = { x: left, w: right - left };
+  }
+
   drawProgress(ctx) {
-    const { x, w, y, h, markerR } = PROGRESS;
+    // Re-measure periodically: a first reading taken before the buttons
+    // have finished laying out is wrong, and fullscreen toggles do not
+    // always fire a resize.
+    if (!this.progressBounds || this.frameCount % 30 === 0) {
+      this.computeProgressBounds();
+    }
+    const { x, w } = this.progressBounds;
+    const { y, h, markerR } = PROGRESS;
     const goal = levelGoal();
     const p = Math.max(0, Math.min(1, this.score / goal));
 
