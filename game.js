@@ -325,8 +325,11 @@ const THROW = { vx: -430, vy: -140, gravity: 900, cooldown: 0.4, size: 20 };
  * moment (mid-jump for an acorn or an obstacle). Touching it ends the run.
  */
 const BIRD = {
-  src: "assets/obstacles/bluebird.png",
-  trim: { sx: 11, sy: 0, sw: 496, sh: 341 },
+  // Six-frame wing beat. One shared union trim keeps the body steady
+  // while the wings sweep, the same trick the fox run cycle uses.
+  frameCount: 6,
+  trim: { sx: 20, sy: 0, sw: 480, sh: 327 },
+  flapFps: 14,
   w: 48, h: 33,
   availableFrom: 1250,   // score at which bluebirds start appearing
   gapMin: 1900,          // px of travel between bird spawns
@@ -428,7 +431,6 @@ const IMAGE_SOURCES = {
   groundGrass: "assets/environment/ground_tile_2.png",
   acorn: "assets/collectibles/acorn.png",
   acornIcon: "assets/ui/acorn_icon.png",
-  bluebird: "assets/obstacles/bluebird.png",
   hedgehogHide1: "assets/obstacles/hedgehog_hide_1.png",
   hedgehogHide2: "assets/obstacles/hedgehog_hide_2.png",
   rabbitHide1: "assets/obstacles/rabbit_hide_1.png",
@@ -474,6 +476,12 @@ function loadAssets() {
   images.dog = {};
   for (const [key, src] of Object.entries(DOG.frames)) {
     jobs.push(loadImage(src).then((img) => (images.dog[key] = img)));
+  }
+  images.birdFly = [];
+  for (let i = 1; i <= BIRD.frameCount; i++) {
+    const src = `assets/obstacles/bluebird/bluebird_fly_${String(i).padStart(2, "0")}.png`;
+    const slot = i - 1;
+    jobs.push(loadImage(src).then((img) => (images.birdFly[slot] = img)));
   }
   images.dogRun = [];
   for (let i = 5; i <= 16; i++) {
@@ -1018,8 +1026,10 @@ class AcornShot {
 
 // A bluebird crossing the sky at jump height. Lethal on contact.
 class Bird {
-  constructor(x, centerY, image) {
-    this.image = image;
+  constructor(x, centerY, frames) {
+    this.frames = frames;
+    // Start mid-cycle so a flock never beats in unison.
+    this.flapPhase = Math.random() * BIRD.frameCount;
     this.w = BIRD.w;
     this.h = BIRD.h;
     this.x = x;
@@ -1044,12 +1054,15 @@ class Bird {
 
   draw(ctx) {
     const t = BIRD.trim;
-    // Flip to fly leftward, with a slight wing-beat tilt.
+    const i = Math.floor(this.flapPhase + this.age * BIRD.flapFps) % BIRD.frameCount;
+    const img = this.frames[i];
+    if (!img) return;
+    // Flip to fly leftward; a touch of tilt on top of the wing beat.
     ctx.save();
     ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
     ctx.scale(-1, 1);
-    ctx.rotate(Math.sin(this.age * 9) * 0.05);
-    ctx.drawImage(this.image, t.sx, t.sy, t.sw, t.sh, -this.w / 2, -this.h / 2, this.w, this.h);
+    ctx.rotate(Math.sin(this.age * BIRD.bobRate * 2) * 0.04);
+    ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, -this.w / 2, -this.h / 2, this.w, this.h);
     ctx.restore();
   }
 }
@@ -1066,7 +1079,7 @@ class BirdSpawner {
     this.distanceUntilNext = BIRD.gapMin;
   }
 
-  update(dt, speed, score, birds, obstacles, dogs, acorns, image) {
+  update(dt, speed, score, birds, obstacles, dogs, acorns, frames) {
     if (score < BIRD.availableFrom) return;
     this.distanceUntilNext -= speed * dt;
     if (this.distanceUntilNext > 0) return;
@@ -1083,7 +1096,7 @@ class BirdSpawner {
       return;
     }
     const centerY = this.groundY - (BIRD.altMin + Math.random() * (BIRD.altMax - BIRD.altMin));
-    birds.push(new Bird(spawnX, centerY, image));
+    birds.push(new Bird(spawnX, centerY, frames));
     this.distanceUntilNext = BIRD.gapMin + Math.random() * (BIRD.gapMax - BIRD.gapMin);
   }
 }
@@ -1566,7 +1579,7 @@ class Game {
     this.shots = this.shots.filter((s) => !s.dead);
     this.birdSpawner.update(
       dt, this.speed, this.score, this.birds,
-      this.obstacles, this.dogDirector.dogs, this.acorns, this.images.bluebird
+      this.obstacles, this.dogDirector.dogs, this.acorns, this.images.birdFly
     );
     for (const b of this.birds) b.update(dt, this.speed);
     this.birds = this.birds.filter((b) => !b.isOffscreen());
