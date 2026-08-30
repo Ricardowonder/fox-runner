@@ -47,18 +47,22 @@ const GROUND = {
  * round, so a quick press can never produce a fatal little hop.
  */
 const PHYSICS = {
-  apex: 132,             // peak height of a tap jump, px (constant)
+  apex: 108,             // peak height of a TAP jump, px (constant)
   riseFrac: 0.52,        // share of airtime spent rising (fall is snappier)
   // Airtime scales with game speed so the jump carries the fox a similar
   // DISTANCE at any speed. Without this the opening is the hardest part
   // of the game: a slow scroll means a short hop and a cruelly narrow
   // timing window, which is exactly what young players struggle with.
-  airtimeSlow: 1.00,     // seconds, at slowSpeed
-  airtimeFast: 0.72,     // seconds, at fastSpeed
+  airtimeSlow: 1.05,     // seconds, at slowSpeed
+  airtimeFast: 0.76,     // seconds, at fastSpeed
   slowSpeed: 215,
   fastSpeed: 515,
-  holdGravityFactor: 0.62, // gravity multiplier while the button is held...
-  holdTime: 0.14,          // ...for this long -> a noticeably higher jump
+  // Holding lifts the fox roughly half again as high as a tap, so a tap
+  // is a modest hop and a held press is a big soaring jump. The tap is
+  // still sized to clear every obstacle on its own - a genuinely tiny
+  // tap would leave a young player unable to get over anything.
+  holdGravityFactor: 0.40, // gravity multiplier while the button is held...
+  holdTime: 0.25,          // ...for this long -> hold apex ~155px
 };
 
 // Jump arc for a given scroll speed: constant apex, longer airtime when
@@ -603,6 +607,7 @@ class Fox {
     this.holding = false;
     this.holdElapsed = 0;
     this.arc = null;
+    this.fallScale = null;
     this.throwTime = null; // non-null while the throw animation plays
   }
 
@@ -614,6 +619,7 @@ class Fox {
     if (this.onGround && !this.dead) {
       this.arc = jumpArc(speed || DIFFICULTY.bands[0].speed);
       this.vy = -this.arc.v;
+      this.fallScale = null;
       this.onGround = false;
       this.holding = true;   // extra lift while the button stays down
       this.holdElapsed = 0;
@@ -629,10 +635,22 @@ class Fox {
   update(dt, speed) {
     if (!this.onGround) {
       const arc = this.arc || jumpArc(speed);
-      let g = this.vy < 0 ? arc.gravityUp : arc.gravityDown;
-      if (this.holding && this.vy < 0 && this.holdElapsed < PHYSICS.holdTime) {
-        this.holdElapsed += dt;
-        g *= PHYSICS.holdGravityFactor;
+      let g;
+      if (this.vy < 0) {
+        g = arc.gravityUp;
+        if (this.holding && this.holdElapsed < PHYSICS.holdTime) {
+          this.holdElapsed += dt;
+          g *= PHYSICS.holdGravityFactor;
+        }
+      } else {
+        // Coming down: a held jump falls proportionally faster, so extra
+        // height does not also mean hanging in the air and overshooting
+        // onto whatever is next. Holding buys height, not airtime.
+        if (this.fallScale === null) {
+          const peak = (this.groundY - this.h) - this.y;
+          this.fallScale = Math.max(1, peak / PHYSICS.apex);
+        }
+        g = arc.gravityDown * this.fallScale;
       }
       this.vy += g * dt;
       this.y += this.vy * dt;
