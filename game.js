@@ -60,26 +60,49 @@ const HERO = {
 function makeTheme(dir, label, opts) {
   opts = opts || {};
   const fb = opts.fallback ? `assets/themes/${opts.fallback}` : null;
+  const files = opts.files || {};
   // Each entry is [preferred, fallback] so the loader can try in order.
+  // A theme may name its files whatever suits its cast (ferret.png in the
+  // hedgehog role); `files` maps role -> filename and the fallback keeps
+  // the default name, since that is what the other theme's folder has.
   const p = (sub, file) => {
     const own = `assets/themes/${dir}/${sub}/${file}`;
     return fb ? [own, `${fb}/${sub}/${file}`] : own;
+  };
+  const q = (sub, role, def) => {
+    const named = files[sub] && files[sub][role];
+    if (!named) return p(sub, def);
+    const own = `assets/themes/${dir}/${sub}/${named}`;
+    return fb ? [own, `${fb}/${sub}/${def}`] : own;
+  };
+  const qList = (sub, role, defs) => {
+    const named = files[sub] && files[sub][role];
+    return defs.map((def, i) => {
+      if (!named || !named[i]) return p(sub, def);
+      const own = `assets/themes/${dir}/${sub}/${named[i]}`;
+      return fb ? [own, `${fb}/${sub}/${def}`] : own;
+    });
   };
   return {
     label,
     hero: HERO,
     cast: opts.cast, // which creature plays each role, for reference
     obstacles: {
-      hedgehog: p("obstacles", "hedgehog.png"),
-      rabbit: p("obstacles", "rabbit.png"),
-      rock: p("obstacles", "rock.png"),
-      log: p("obstacles", "log.png"),
-      stump: p("obstacles", "stump.png"),
+      hedgehog: q("obstacles", "hedgehog", "hedgehog.png"),
+      rabbit: q("obstacles", "rabbit", "rabbit.png"),
+      rock: q("obstacles", "rock", "rock.png"),
+      log: q("obstacles", "log", "log.png"),
+      stump: q("obstacles", "stump", "stump.png"),
     },
-    reactions: {
-      hedgehog: [p("reactions", "hedgehog_1.png"), p("reactions", "hedgehog_2.png")],
-      rabbit: [p("reactions", "rabbit_1.png"), p("reactions", "rabbit_2.png")],
-    },
+    // Any role may have any number of reaction poses - the ferret needs
+    // two to cower, the badger four to stand all the way up.
+    reactions: opts.reactions
+      ? Object.fromEntries(Object.entries(opts.reactions).map(
+          ([role, names]) => [role, names.map((n) => p("reactions", n))]))
+      : {
+          hedgehog: qList("reactions", "hedgehog", ["hedgehog_1.png", "hedgehog_2.png"]),
+          rabbit: qList("reactions", "rabbit", ["rabbit_1.png", "rabbit_2.png"]),
+        },
     chaser: {
       sleep: p("chaser", "sleep.png"),
       waking: p("chaser", "waking.png"),
@@ -89,12 +112,12 @@ function makeTheme(dir, label, opts) {
       bite: p("chaser", "bite.png"),
       run: seq(12, (i) => p("chaser", `run_${pad2(i + 1)}.png`)),
     },
-    flyer: { fly: seq(6, (i) => p("flyer", `fly_${pad2(i + 1)}.png`)) },
+    flyer: { fly: qList("flyer", "fly", seq(6, (i) => `fly_${pad2(i + 1)}.png`)) },
     collectible: { item: p("collectible", "item.png"), icon: p("collectible", "icon.png") },
     scenery: {
-      sky: p("scenery", "sky.png"),
+      sky: q("scenery", "sky", "sky.png"),
       hillsFar: p("scenery", "hills_far.png"),
-      trees: seq(3, (i) => p("scenery", `tree_${pad2(i + 1)}.png`)),
+      trees: qList("scenery", "trees", seq(3, (i) => `tree_${pad2(i + 1)}.png`)),
       bushes: [p("scenery", "bush_strip.png"), p("scenery", "bush_01.png"),
                p("scenery", "bush_02.png"), p("scenery", "bush_03.png")],
     },
@@ -114,23 +137,88 @@ const THEMES = {
   field: makeTheme("field", "Field", {
     cast: { hedgehog: "hedgehog", rabbit: "rabbit", chaser: "hunting dog",
             flyer: "bluebird", collectible: "acorn" },
+    sprites: {
+      // Cowering poses shown as the fox bears down and leaps over. Purely
+      // cosmetic — see Obstacle.draw, the collision box never changes.
+      hedgehog: { poses: [
+        { trim: { sx: 60, sy: 58, sw: 417, sh: 237 }, hScale: 0.97 },
+        { trim: { sx: 66, sy: 11, sw: 403, sh: 301 }, hScale: 0.92 },
+      ] },
+      rabbit: { poses: [
+        { trim: { sx: 30, sy: 58, sw: 477, sh: 231 }, hScale: 0.94 },
+        { trim: { sx: 47, sy: 88, sw: 460, sh: 199 }, hScale: 0.86 },
+      ] },
+    },
   }),
   /* Level 2. The roles keep their level-1 names in code - the art and the
    * `cast` note say who is actually playing them - so every bit of
-   * difficulty tuning carries over untouched. Anything not yet drawn
-   * falls back to the field art, so this is playable while the woodland
-   * assets arrive.
+   * difficulty tuning carries over untouched. The woodland creatures are
+   * longer and lower than the field's, so each one brings its own trim,
+   * drawn height and hitbox. Anything this folder does not have (the dog,
+   * the acorn, the ground, the bushes) falls back to the field art.
    */
   woodland: makeTheme("woodland", "Woodland", {
     fallback: "field",
-    cast: { hedgehog: "ferret", rabbit: "badger", chaser: "hunting dog",
-            flyer: "owl", collectible: "acorn" },
+    cast: { hedgehog: "ferret", rabbit: "badger", rock: "otter",
+            log: "mossy log", stump: "hollow log",
+            chaser: "hunting dog", flyer: "owl", collectible: "acorn" },
+    files: {
+      obstacles: { hedgehog: "ferret.png", rabbit: "badger.png", rock: "otter.png",
+                   log: "log_mossy.png", stump: "log_hollow.png" },
+      flyer: { fly: seq(6, (i) => `owl_fly_${pad2(i + 1)}.png`) },
+      scenery: { sky: "woodland_background.png",
+                 trees: ["tree_oak.png", "tree_birch.png", "tree_pine.png"] },
+    },
+    reactions: {
+      hedgehog: ["ferret_1.png", "ferret_2.png"],
+      rabbit: ["badger_1.png", "badger_2.png", "badger_3.png", "badger_4.png"],
+      rock: ["otter_1.png", "otter_2.png"],
+    },
     sprites: {
-      // The badger rears onto its hind legs as the fox approaches instead
-      // of cowering: same footprint, but it becomes a tall obstacle.
-      rabbit: { h: 38, rearHeight: 58 },
+      // The ferret is long and low where the hedgehog was round.
+      hedgehog: {
+        h: 28, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
+        hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 31, sy: 101, sw: 450, sh: 214 }, hScale: 0.95 },
+          { trim: { sx: 31, sy: 196, sw: 450, sh: 119 }, hScale: 0.82 },
+        ],
+      },
+      /* The badger rears onto its hind legs to try to catch the fox,
+       * through four poses: on all fours, half up, upright, then reaching.
+       * It grows 34px to 58px - a real threat, but well under the 105px
+       * jump apex, so a plain tap still clears it.
+       */
+      rabbit: {
+        // Held back from the opening: a reared badger is the toughest
+        // single obstacle in either level, so the ferret carries the
+        // early game the way the hedgehog does in the field.
+        h: 34, rearHeight: 58, availableFrom: 500,
+        trim: { sx: 31, sy: 102, sw: 449, sh: 213 },
+        hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 31, sy: 102, sw: 449, sh: 213 } },
+          { trim: { sx: 115, sy: 15, sw: 281, sh: 300 } },
+          { trim: { sx: 156, sy: 15, sw: 199, sh: 300 } },
+          { trim: { sx: 137, sy: 15, sw: 237, sh: 300 } },
+        ],
+      },
+      // The otter takes the rock's slot, and cowers like the ferret.
+      rock: {
+        h: 26, animal: true, flip: true, sink: 3,
+        trim: { sx: 31, sy: 135, sw: 449, sh: 180 },
+        hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 31, sy: 166, sw: 449, sh: 149 }, hScale: 0.94 },
+          { trim: { sx: 31, sy: 202, sw: 449, sh: 113 }, hScale: 0.82 },
+        ],
+      },
+      log: { h: 32, trim: { sx: 15, sy: 34, sw: 481, sh: 204 },
+             hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 } },
+      stump: { h: 44, trim: { sx: 52, sy: 0, sw: 408, sh: 240 },
+               hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 } },
       // The owl is a bigger bird than the bluebird.
-      flyer: { w: 62, h: 43 },
+      flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 } },
     },
   }),
 };
@@ -304,12 +392,6 @@ const OBSTACLE_TYPES = {
     flip: true, // face the approaching fox (hitbox insets already mirrored)
     trim: { sx: 56, sy: 10, sw: 414, sh: 320 },
     hitbox: { left: 0.10, right: 0.08, top: 0.12, bottom: 0.02 },
-    // Cowering poses shown as the fox bears down and leaps over. Purely
-    // cosmetic — see Obstacle.draw, the collision box never changes.
-    hide: [
-      { key: "hedgehogHide1", trim: { sx: 60, sy: 58, sw: 417, sh: 237 }, hScale: 0.97 },
-      { key: "hedgehogHide2", trim: { sx: 66, sy: 11, sw: 403, sh: 301 }, hScale: 0.92 },
-    ],
   },
   rabbit: {
     src: THEME.obstacles.rabbit,
@@ -318,10 +400,6 @@ const OBSTACLE_TYPES = {
     flip: true, // face the approaching fox (hitbox insets already mirrored)
     trim: { sx: 64, sy: 2, sw: 412, sh: 336 },
     hitbox: { left: 0.10, right: 0.10, top: 0.18, bottom: 0.02 },
-    hide: [
-      { key: "rabbitHide1", trim: { sx: 30, sy: 58, sw: 477, sh: 231 }, hScale: 0.94 },
-      { key: "rabbitHide2", trim: { sx: 47, sy: 88, sw: 460, sh: 199 }, hScale: 0.86 },
-    ],
   },
   rock: {
     src: THEME.obstacles.rock,
@@ -614,10 +692,6 @@ function bindTheme() {
     groundGrass: THEME.ground.grass,
     acorn: THEME.collectible.item,
     acornIcon: THEME.collectible.icon,
-    hedgehogHide1: THEME.reactions.hedgehog[0],
-    hedgehogHide2: THEME.reactions.hedgehog[1],
-    rabbitHide1: THEME.reactions.rabbit[0],
-    rabbitHide2: THEME.reactions.rabbit[1],
     foxJump: THEME.hero.jump,
     foxLand: THEME.hero.land,
     foxHit: THEME.hero.hit,
@@ -629,6 +703,20 @@ function bindTheme() {
     gameOverBg: THEME.pages.gameOver,
   };
   THEME.hero.run.forEach((src, i) => { IMAGE_SOURCES["foxRun" + (i + 1)] = src; });
+  /* Reaction poses: each role's list can be any length (two to cower,
+   * four for the badger's rise). Register an image per pose and hand the
+   * obstacle a `hide` list pairing each key with its trim.
+   */
+  for (const [role, paths] of Object.entries(THEME.reactions || {})) {
+    const type = OBSTACLE_TYPES[role];
+    const poses = (THEME.sprites && THEME.sprites[role] && THEME.sprites[role].poses) || [];
+    if (!type || !poses.length) continue;
+    type.hide = paths.slice(0, poses.length).map((src, i) => {
+      const key = `react_${role}_${i}`;
+      IMAGE_SOURCES[key] = src;
+      return { key, trim: poses[i].trim, hScale: poses[i].hScale || 1 };
+    });
+  }
   DOG.frames = THEME.chaser;
   ACORN.src = THEME.collectible.item;
   for (const [name, type] of Object.entries(OBSTACLE_TYPES)) {
@@ -662,11 +750,27 @@ function loadImage(src) {
  * badger rears where the rabbit cowers - so spacing, speed and every other
  * difficulty number stays identical from level to level.
  */
+// The shared gameplay config, before any theme touches it. Themes only
+// override geometry, and switching level must not leak one theme's
+// proportions into the next, so every bind starts from these.
+const BASE_OBSTACLES = JSON.parse(JSON.stringify(OBSTACLE_TYPES));
+const BASE_BIRD = { w: BIRD.w, h: BIRD.h, trim: BIRD.trim };
+
 function applyThemeSprites() {
+  for (const [name, base] of Object.entries(BASE_OBSTACLES)) {
+    const t = OBSTACLE_TYPES[name];
+    for (const k of Object.keys(t)) {
+      if (k !== "image") delete t[k];
+    }
+    Object.assign(t, JSON.parse(JSON.stringify(base)));
+  }
+  Object.assign(BIRD, JSON.parse(JSON.stringify(BASE_BIRD)));
+
   for (const [role, over] of Object.entries(THEME.sprites || {})) {
     const target = role === "flyer" ? BIRD : OBSTACLE_TYPES[role];
     if (!target) continue;
-    Object.assign(target, over);
+    const { poses, ...geometry } = over;
+    Object.assign(target, geometry);
   }
   // Anything that rears is too tall to be half of a one-jump close pair.
   for (const t of Object.values(OBSTACLE_TYPES)) {
@@ -977,13 +1081,20 @@ class Obstacle {
       this.rear = Math.min(1, this.rear + dt / OBSTACLE_REAR.riseTime);
     }
     const groundLine = this.y + this.h; // keep the feet planted
+    const centre = this.x + this.w / 2;
     this.h = this.baseH + (this.type.rearHeight - this.baseH) * this.rear;
     this.y = groundLine - this.h;
-    // Reuse the reaction poses as the standing art, if the theme has them.
-    if (this.type.hide) {
-      const idx = this.rear > 0.6 ? 1 : this.rear > 0.05 ? 0 : -1;
+    // Step through the rise poses: on all fours, half up, upright, reaching.
+    const poses = this.type.hide;
+    if (poses && poses.length) {
+      const idx = Math.min(poses.length - 1, Math.floor(this.rear * poses.length));
       this.hideLevel = idx + 1;
-      this.hideImage = idx >= 0 ? images[this.type.hide[idx].key] : null;
+      this.hideImage = images[poses[idx].key];
+      // An upright badger is much narrower than one on all fours, so the
+      // hitbox follows the pose rather than staying at the sprawled width.
+      const t = poses[idx].trim;
+      this.w = this.h * (t.sw / t.sh);
+      this.x = centre - this.w / 2;
     }
   }
 

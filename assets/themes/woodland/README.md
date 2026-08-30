@@ -1,41 +1,34 @@
 # Woodland theme (level 2)
 
-Drop art in here using these exact filenames and it is picked up
-automatically — no code changes. Anything missing falls back to the
-matching field art, so the level stays playable while it comes together.
+Cast, and the level-1 role each one plays in code:
 
-Cast: ferret (hedgehog role), badger (rabbit role), owl (flyer),
-hunting dog (chaser), acorn (collectible).
+| file | role | behaviour |
+|---|---|---|
+| `obstacles/ferret.png` | hedgehog | crouches flat (`ferret_1/2`) |
+| `obstacles/badger.png` | rabbit | **rears up** through `badger_1..4` |
+| `obstacles/otter.png` | rock | crouches flat (`otter_1/2`) |
+| `obstacles/log_mossy.png` | log | — |
+| `obstacles/log_hollow.png` | stump | — |
+| `flyer/owl_fly_01..06.png` | flyer | wing cycle, bigger than the bluebird |
+| `scenery/woodland_background.png` | sky | painted backdrop |
+| `scenery/hills_far.png` | hillsFar | transparent treeline band |
+| `scenery/tree_oak/birch/pine.png` | trees | parallax trees |
 
-    scenery/     sky.png  hills_far.png  tree_01..03.png
-                 bush_strip.png  bush_01..03.png
-    ground/      grass.png  dirt.png
-    obstacles/   hedgehog.png   <- ferret
-                 rabbit.png     <- badger (standing on all fours)
-                 rock.png  log.png  stump.png
-    reactions/   hedgehog_1.png hedgehog_2.png   <- ferret cowering
-                 rabbit_1.png   rabbit_2.png     <- badger part-way up,
-                                                    then fully reared
-    chaser/      sleep.png waking.png head_shake.png alert.png
-                 crash.png bite.png  run_01..12.png
-    flyer/       fly_01..06.png   <- owl wing cycle
-    collectible/ item.png  icon.png
-    pages/       intro.png  game_over.png
-                 foxhole.png  (optional: the burrow the fox dives into;
-                               drawn placeholder used until supplied)
+Roles keep their level-1 names so all the difficulty tuning carries over.
+Filenames are mapped in `THEMES.woodland.files` in game.js.
 
-Sizes: match the field art — 512x341 palette PNGs (the acorn is 512x512).
-Draw each creature filling the frame as its field counterpart does; the
-game trims transparent padding and scales to the sizes in THEMES.sprites.
+Still falling back to the field art (drop files in to override):
+`ground/`, `scenery/bush_*`, `chaser/`, `collectible/`, `pages/`.
+A `pages/foxhole.png` replaces the drawn burrow the fox dives into.
 
-## Behaviour notes
+## Tuning notes
 
-- **Badger** plays the rabbit role but rears onto its hind legs instead of
-  cowering: it grows from 38px to 58px tall as the fox approaches, and the
-  hitbox grows with it. So draw `rabbit.png` on all fours, `rabbit_1.png`
-  part-way up and `rabbit_2.png` fully reared — the reared art is drawn at
-  the taller size, so it should fill its frame standing upright.
-- **Owl** is drawn bigger than the bluebird (62x43 rather than 48x33), so
-  the six wing frames want the same generous framing the bluebird had.
-- Sizes and heights live in `THEMES.woodland.sprites` in game.js if the
-  finished art wants different proportions.
+Drawn sizes and trims live in `THEMES.woodland.sprites`. Current values:
+ferret 63x28, badger 72x34 (rearing to 58 tall), otter 65x26,
+mossy log 75x32, hollow log 75x44, owl 63x42.
+
+The badger rises from 520px away — well before any jump is committed —
+and its hitbox follows each pose, so the upright shape is narrow rather
+than keeping the sprawled width. It holds off until score 500 because a
+reared badger is the toughest single obstacle in either level; the ferret
+carries the opening the way the hedgehog does in the field.
