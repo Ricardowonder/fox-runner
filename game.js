@@ -15,6 +15,92 @@
  * ========================================================================= */
 
 // ---------------------------------------------------------------------------
+// Themes
+// ---------------------------------------------------------------------------
+
+/* Every piece of artwork the game loads, in one place, grouped by the ROLE
+ * it plays rather than by what it depicts. Level 2 keeps the same gameplay
+ * with a different cast and setting (the rabbit becomes a badger, the
+ * bluebird an owl, new scenery), so it is a second entry in THEMES plus a
+ * line in LEVELS - no engine changes.
+ *
+ * Roles: hero (the player), obstacles + reactions (things to jump, and the
+ * cowering poses shown as the hero leaps over them), chaser (the pursuing
+ * animal), flyer (the airborne hazard), collectible (ammunition), scenery
+ * and ground (the parallax world), pages (intro / game-over art).
+ * Sprite geometry - drawn sizes, source trims, hitboxes - stays with the
+ * gameplay config below, since a level 2 stand-in should be authored to
+ * the same proportions.
+ */
+const D_DOG = "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_";
+const D_FOX = "assets/fox/fox/fox_run_";
+const D_THROW = "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_";
+const seq = (n, fn) => Array.from({ length: n }, (_, i) => fn(i));
+
+const THEMES = {
+  woodland: {
+    label: "Woodland",
+    hero: {
+      run: seq(12, (i) => `${D_FOX}${String(i + 1).padStart(2, "0")}.png`),
+      jump: "assets/fox/fox_jump.png",
+      land: "assets/fox/fox_land.png",
+      hit: "assets/fox/fox_hit_game_over.png",
+      throw: [
+        `${D_THROW}01_glance_back.png`, `${D_THROW}02_windup.png`,
+        `${D_THROW}03_release.png`, `${D_THROW}04_recover.png`,
+      ],
+    },
+    obstacles: {
+      hedgehog: "assets/obstacles/hedgehog.png",
+      rabbit: "assets/obstacles/rabbit.png",
+      rock: "assets/obstacles/rock.png",
+      log: "assets/obstacles/log.png",
+      stump: "assets/obstacles/stump.png",
+    },
+    reactions: {
+      hedgehog: ["assets/obstacles/hedgehog_hide_1.png", "assets/obstacles/hedgehog_hide_2.png"],
+      rabbit: ["assets/obstacles/rabbit_hide_1.png", "assets/obstacles/rabbit_hide_2.png"],
+    },
+    chaser: {
+      sleep: `${D_DOG}01_sleep.png`,
+      waking: `${D_DOG}02_waking.png`,
+      headShake: `${D_DOG}03_head_shake.png`,
+      alert: `${D_DOG}04_alert.png`,
+      crash: `${D_DOG}acorn_crash.png`,
+      bite: `${D_DOG}run_bite.png`,
+      run: seq(12, (i) => `${D_DOG}${String(i + 5).padStart(2, "0")}_run.png`),
+    },
+    flyer: {
+      fly: seq(6, (i) => `assets/obstacles/bluebird/bluebird_fly_0${i + 1}.png`),
+    },
+    collectible: {
+      item: "assets/collectibles/acorn.png",
+      icon: "assets/ui/acorn_icon.png",
+    },
+    scenery: {
+      sky: "assets/background/bg_sky.png",
+      hillsFar: "assets/background/bg_hills_far.png",
+      trees: ["assets/background/tree.png", "assets/background/tree-2.png",
+              "assets/background/tree-3.png"],
+      bushes: ["assets/background/bg_bushes_near.png", "assets/background/bg_bushes_1.png",
+               "assets/background/bg_bushes_2.png", "assets/background/bg_bushes_3.png"],
+    },
+    ground: {
+      grass: "assets/environment/ground_tile_2.png",
+      dirt: "assets/environment/ground_tile_5.png",
+    },
+    pages: {
+      intro: "assets/fox-runner-loading-page/fox_runner_loading_art_wide_clean.png",
+      gameOver: "assets/fox-runner-game-over-page-wide 2/fox_runner_game_over_art_wide_clean.png",
+    },
+  },
+};
+
+// Level 1 is the woodland. Add level 2 here once its theme exists.
+const LEVELS = [{ theme: "woodland", goal: 3000 }];
+const THEME = THEMES[LEVELS[0].theme];
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -81,7 +167,7 @@ function jumpArc(speed) {
 }
 
 const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
-const LEVEL_GOAL = 3000;           // reaching this finishes level 1
+const LEVEL_GOAL = LEVELS[0].goal; // reaching this finishes level 1
 
 // Fox drawn CONTENT size (the visible artwork, not the padded PNG canvas).
 const FOX_H = 62;
@@ -157,7 +243,7 @@ const OBSTACLE_TYPES = {
   // at low speed a jump covers little distance, making long obstacles
   // disproportionately hard for beginners.
   hedgehog: {
-    src: "assets/obstacles/hedgehog.png",
+    src: THEME.obstacles.hedgehog,
     h: 32, sizeClass: "small", animal: true, pairable: true,
     weight: 3, availableFrom: 0, sink: 3,
     flip: true, // face the approaching fox (hitbox insets already mirrored)
@@ -171,7 +257,7 @@ const OBSTACLE_TYPES = {
     ],
   },
   rabbit: {
-    src: "assets/obstacles/rabbit.png",
+    src: THEME.obstacles.rabbit,
     h: 38, sizeClass: "small", animal: true, pairable: true,
     weight: 2.5, availableFrom: 0, sink: 3,
     flip: true, // face the approaching fox (hitbox insets already mirrored)
@@ -183,21 +269,21 @@ const OBSTACLE_TYPES = {
     ],
   },
   rock: {
-    src: "assets/obstacles/rock.png",
+    src: THEME.obstacles.rock,
     h: 40, sizeClass: "medium", animal: false, pairable: true,
     weight: 2.5, availableFrom: 500, sink: 4,
     trim: { sx: 14, sy: 14, sw: 484, sh: 304 },
     hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
   },
   log: {
-    src: "assets/obstacles/log.png",
+    src: THEME.obstacles.log,
     h: 34, sizeClass: "medium", animal: false, pairable: true,
     weight: 3, availableFrom: 1000, sink: 4,
     trim: { sx: 16, sy: 26, sw: 482, sh: 200 },
     hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 },
   },
   stump: {
-    src: "assets/obstacles/stump.png",
+    src: THEME.obstacles.stump,
     h: 46, sizeClass: "large", animal: false, pairable: false,
     trim: { sx: 34, sy: 36, sw: 454, sh: 278 },
     weight: 2, availableFrom: 1500, sink: 5,
@@ -261,7 +347,7 @@ const CLOSE_PAIR_SAFETY = 0.78;     // fraction of theoretical clearance we allo
  * to the jump arc (apex 120px): highest acorns need a near-full jump.
  */
 const ACORN = {
-  src: "assets/collectibles/acorn.png",
+  src: THEME.collectible.item,
   trim: { sx: 0, sy: 22, sw: 505, sh: 490 },
   w: 26, h: 25,
   pickupPad: 4,          // extra px around the sprite for a forgiving catch
@@ -292,15 +378,7 @@ const DOG = {
   availableFrom: 700,    // score at which dogs start appearing
   gapMin: 2600,          // px of travel between dog encounters
   gapMax: 4800,
-  frames: {
-    sleep: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_01_sleep.png",
-    waking: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_02_waking.png",
-    headShake: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_03_head_shake.png",
-    alert: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_04_alert.png",
-    crash: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_acorn_crash.png",
-    bite: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_run_bite.png",
-    // 05..16 run cycle appended at load
-  },
+  frames: THEME.chaser, // sleep / waking / headShake / alert / crash / bite
   // Per-pose `sink` pushes the sprite down into the grass (art has soft
   // transparent edges at the bottom); default is 3 when unset.
   poses: {
@@ -460,45 +538,34 @@ function maxSingleJumpSpan(speed, obstacleH, foxHitboxW) {
 // ---------------------------------------------------------------------------
 
 const IMAGE_SOURCES = {
-  sky: "assets/background/bg_sky.png",
-  hillsFar: "assets/background/bg_hills_far.png",
-  tree1: "assets/background/tree.png",
-  tree2: "assets/background/tree-2.png",
-  tree3: "assets/background/tree-3.png",
-  bushStrip: "assets/background/bg_bushes_near.png",
-  bush1: "assets/background/bg_bushes_1.png",
-  bush2: "assets/background/bg_bushes_2.png",
-  bush3: "assets/background/bg_bushes_3.png",
-  groundDirt: "assets/environment/ground_tile_5.png",
-  groundGrass: "assets/environment/ground_tile_2.png",
-  acorn: "assets/collectibles/acorn.png",
-  acornIcon: "assets/ui/acorn_icon.png",
-  hedgehogHide1: "assets/obstacles/hedgehog_hide_1.png",
-  hedgehogHide2: "assets/obstacles/hedgehog_hide_2.png",
-  rabbitHide1: "assets/obstacles/rabbit_hide_1.png",
-  rabbitHide2: "assets/obstacles/rabbit_hide_2.png",
-  foxRun1: "assets/fox/fox/fox_run_01.png",
-  foxRun2: "assets/fox/fox/fox_run_02.png",
-  foxRun3: "assets/fox/fox/fox_run_03.png",
-  foxRun4: "assets/fox/fox/fox_run_04.png",
-  foxRun5: "assets/fox/fox/fox_run_05.png",
-  foxRun6: "assets/fox/fox/fox_run_06.png",
-  foxRun7: "assets/fox/fox/fox_run_07.png",
-  foxRun8: "assets/fox/fox/fox_run_08.png",
-  foxRun9: "assets/fox/fox/fox_run_09.png",
-  foxRun10: "assets/fox/fox/fox_run_10.png",
-  foxRun11: "assets/fox/fox/fox_run_11.png",
-  foxRun12: "assets/fox/fox/fox_run_12.png",
-  foxJump: "assets/fox/fox_jump.png",
-  foxLand: "assets/fox/fox_land.png",
-  foxHit: "assets/fox/fox_hit_game_over.png",
-  foxThrow1: "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_01_glance_back.png",
-  foxThrow2: "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_02_windup.png",
-  foxThrow3: "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_03_release.png",
-  foxThrow4: "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_04_recover.png",
-  introBg: "assets/fox-runner-loading-page/fox_runner_loading_art_wide_clean.png",
-  gameOverBg: "assets/fox-runner-game-over-page-wide 2/fox_runner_game_over_art_wide_clean.png",
+  sky: THEME.scenery.sky,
+  hillsFar: THEME.scenery.hillsFar,
+  tree1: THEME.scenery.trees[0],
+  tree2: THEME.scenery.trees[1],
+  tree3: THEME.scenery.trees[2],
+  bushStrip: THEME.scenery.bushes[0],
+  bush1: THEME.scenery.bushes[1],
+  bush2: THEME.scenery.bushes[2],
+  bush3: THEME.scenery.bushes[3],
+  groundDirt: THEME.ground.dirt,
+  groundGrass: THEME.ground.grass,
+  acorn: THEME.collectible.item,
+  acornIcon: THEME.collectible.icon,
+  hedgehogHide1: THEME.reactions.hedgehog[0],
+  hedgehogHide2: THEME.reactions.hedgehog[1],
+  rabbitHide1: THEME.reactions.rabbit[0],
+  rabbitHide2: THEME.reactions.rabbit[1],
+  foxJump: THEME.hero.jump,
+  foxLand: THEME.hero.land,
+  foxHit: THEME.hero.hit,
+  foxThrow1: THEME.hero.throw[0],
+  foxThrow2: THEME.hero.throw[1],
+  foxThrow3: THEME.hero.throw[2],
+  foxThrow4: THEME.hero.throw[3],
+  introBg: THEME.pages.intro,
+  gameOverBg: THEME.pages.gameOver,
 };
+THEME.hero.run.forEach((src, i) => { IMAGE_SOURCES["foxRun" + (i + 1)] = src; });
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -517,20 +584,17 @@ function loadAssets() {
   }
   images.dog = {};
   for (const [key, src] of Object.entries(DOG.frames)) {
+    if (typeof src !== "string") continue; // skip the run-cycle array
     jobs.push(loadImage(src).then((img) => (images.dog[key] = img)));
   }
   images.birdFly = [];
-  for (let i = 1; i <= BIRD.frameCount; i++) {
-    const src = `assets/obstacles/bluebird/bluebird_fly_${String(i).padStart(2, "0")}.png`;
-    const slot = i - 1;
-    jobs.push(loadImage(src).then((img) => (images.birdFly[slot] = img)));
-  }
+  THEME.flyer.fly.forEach((src, i) => {
+    jobs.push(loadImage(src).then((img) => (images.birdFly[i] = img)));
+  });
   images.dogRun = [];
-  for (let i = 5; i <= 16; i++) {
-    const src = `assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_${String(i).padStart(2, "0")}_run.png`;
-    const slot = i - 5;
-    jobs.push(loadImage(src).then((img) => (images.dogRun[slot] = img)));
-  }
+  THEME.chaser.run.forEach((src, i) => {
+    jobs.push(loadImage(src).then((img) => (images.dogRun[i] = img)));
+  });
   for (const type of Object.values(OBSTACLE_TYPES)) {
     jobs.push(
       loadImage(type.src).then((img) => {
