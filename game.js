@@ -19,85 +19,93 @@
 // ---------------------------------------------------------------------------
 
 /* Every piece of artwork the game loads, in one place, grouped by the ROLE
- * it plays rather than by what it depicts. Level 2 keeps the same gameplay
- * with a different cast and setting (the rabbit becomes a badger, the
- * bluebird an owl, new scenery), so it is a second entry in THEMES plus a
- * line in LEVELS - no engine changes.
+ * it plays rather than by what it depicts. The folders mirror this exactly:
+ *   assets/shared/fox/         the hero, who travels through every level
+ *   assets/themes/<name>/      one folder per setting, same subfolders
  *
- * Roles: hero (the player), obstacles + reactions (things to jump, and the
- * cowering poses shown as the hero leaps over them), chaser (the pursuing
- * animal), flyer (the airborne hazard), collectible (ammunition), scenery
- * and ground (the parallax world), pages (intro / game-over art).
- * Sprite geometry - drawn sizes, source trims, hitboxes - stays with the
- * gameplay config below, since a level 2 stand-in should be authored to
- * the same proportions.
+ * Level 2 keeps the same gameplay in a new setting (woodland, and a city
+ * later on) with a different cast - the rabbit becomes a badger, the
+ * bluebird an owl. That is a new folder under assets/themes/, a second
+ * entry here, and a line in LEVELS. No engine changes.
+ *
+ * Sprite geometry - drawn sizes, source trims, hitboxes - deliberately
+ * stays with the gameplay config below rather than in the theme, so a
+ * stand-in authored to the same proportions inherits all the difficulty
+ * tuning for free.
  */
-const D_DOG = "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_";
-const D_FOX = "assets/fox/fox/fox_run_";
-const D_THROW = "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_";
 const seq = (n, fn) => Array.from({ length: n }, (_, i) => fn(i));
+const pad2 = (n) => String(n).padStart(2, "0");
 
-const THEMES = {
-  woodland: {
-    label: "Woodland",
-    hero: {
-      run: seq(12, (i) => `${D_FOX}${String(i + 1).padStart(2, "0")}.png`),
-      jump: "assets/fox/fox_jump.png",
-      land: "assets/fox/fox_land.png",
-      hit: "assets/fox/fox_hit_game_over.png",
-      throw: [
-        `${D_THROW}01_glance_back.png`, `${D_THROW}02_windup.png`,
-        `${D_THROW}03_release.png`, `${D_THROW}04_recover.png`,
-      ],
-    },
-    obstacles: {
-      hedgehog: "assets/obstacles/hedgehog.png",
-      rabbit: "assets/obstacles/rabbit.png",
-      rock: "assets/obstacles/rock.png",
-      log: "assets/obstacles/log.png",
-      stump: "assets/obstacles/stump.png",
-    },
-    reactions: {
-      hedgehog: ["assets/obstacles/hedgehog_hide_1.png", "assets/obstacles/hedgehog_hide_2.png"],
-      rabbit: ["assets/obstacles/rabbit_hide_1.png", "assets/obstacles/rabbit_hide_2.png"],
-    },
-    chaser: {
-      sleep: `${D_DOG}01_sleep.png`,
-      waking: `${D_DOG}02_waking.png`,
-      headShake: `${D_DOG}03_head_shake.png`,
-      alert: `${D_DOG}04_alert.png`,
-      crash: `${D_DOG}acorn_crash.png`,
-      bite: `${D_DOG}run_bite.png`,
-      run: seq(12, (i) => `${D_DOG}${String(i + 5).padStart(2, "0")}_run.png`),
-    },
-    flyer: {
-      fly: seq(6, (i) => `assets/obstacles/bluebird/bluebird_fly_0${i + 1}.png`),
-    },
-    collectible: {
-      item: "assets/collectibles/acorn.png",
-      icon: "assets/ui/acorn_icon.png",
-    },
-    scenery: {
-      sky: "assets/background/bg_sky.png",
-      hillsFar: "assets/background/bg_hills_far.png",
-      trees: ["assets/background/tree.png", "assets/background/tree-2.png",
-              "assets/background/tree-3.png"],
-      bushes: ["assets/background/bg_bushes_near.png", "assets/background/bg_bushes_1.png",
-               "assets/background/bg_bushes_2.png", "assets/background/bg_bushes_3.png"],
-    },
-    ground: {
-      grass: "assets/environment/ground_tile_2.png",
-      dirt: "assets/environment/ground_tile_5.png",
-    },
-    pages: {
-      intro: "assets/fox-runner-loading-page/fox_runner_loading_art_wide_clean.png",
-      gameOver: "assets/fox-runner-game-over-page-wide 2/fox_runner_game_over_art_wide_clean.png",
-    },
-  },
+// Shared across every level: the fox himself.
+const HERO = {
+  run: seq(12, (i) => `assets/shared/fox/run_${pad2(i + 1)}.png`),
+  jump: "assets/shared/fox/jump.png",
+  land: "assets/shared/fox/land.png",
+  hit: "assets/shared/fox/hit.png",
+  throw: [
+    "assets/shared/fox/throw_01_glance_back.png",
+    "assets/shared/fox/throw_02_windup.png",
+    "assets/shared/fox/throw_03_release.png",
+    "assets/shared/fox/throw_04_recover.png",
+  ],
 };
 
-// Level 1 is the woodland. Add level 2 here once its theme exists.
-const LEVELS = [{ theme: "woodland", goal: 3000 }];
+// Builds a theme's paths from its folder; every theme has this same shape.
+function makeTheme(dir, label, cast) {
+  const p = (sub, file) => `assets/themes/${dir}/${sub}/${file}`;
+  return {
+    label,
+    hero: HERO,
+    cast, // which creature plays each role, for reference
+    obstacles: {
+      hedgehog: p("obstacles", "hedgehog.png"),
+      rabbit: p("obstacles", "rabbit.png"),
+      rock: p("obstacles", "rock.png"),
+      log: p("obstacles", "log.png"),
+      stump: p("obstacles", "stump.png"),
+    },
+    reactions: {
+      hedgehog: [p("reactions", "hedgehog_1.png"), p("reactions", "hedgehog_2.png")],
+      rabbit: [p("reactions", "rabbit_1.png"), p("reactions", "rabbit_2.png")],
+    },
+    chaser: {
+      sleep: p("chaser", "sleep.png"),
+      waking: p("chaser", "waking.png"),
+      headShake: p("chaser", "head_shake.png"),
+      alert: p("chaser", "alert.png"),
+      crash: p("chaser", "crash.png"),
+      bite: p("chaser", "bite.png"),
+      run: seq(12, (i) => p("chaser", `run_${pad2(i + 1)}.png`)),
+    },
+    flyer: { fly: seq(6, (i) => p("flyer", `fly_${pad2(i + 1)}.png`)) },
+    collectible: { item: p("collectible", "item.png"), icon: p("collectible", "icon.png") },
+    scenery: {
+      sky: p("scenery", "sky.png"),
+      hillsFar: p("scenery", "hills_far.png"),
+      trees: seq(3, (i) => p("scenery", `tree_${pad2(i + 1)}.png`)),
+      bushes: [p("scenery", "bush_strip.png"), p("scenery", "bush_01.png"),
+               p("scenery", "bush_02.png"), p("scenery", "bush_03.png")],
+    },
+    ground: { grass: p("ground", "grass.png"), dirt: p("ground", "dirt.png") },
+    pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
+  };
+}
+
+const THEMES = {
+  field: makeTheme("field", "Field", {
+    obstacles: "hedgehog, rabbit, rock, log, stump",
+    chaser: "hunting dog",
+    flyer: "bluebird",
+    collectible: "acorn",
+  }),
+  // woodland: makeTheme("woodland", "Woodland", {
+  //   obstacles: "... badger in the rabbit's role ...",
+  //   flyer: "owl", ...
+  // }),
+};
+
+// Level 1 is the field. Add later levels here as their themes appear.
+const LEVELS = [{ theme: "field", goal: 3000 }];
 const THEME = THEMES[LEVELS[0].theme];
 
 // ---------------------------------------------------------------------------

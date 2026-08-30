@@ -7,8 +7,8 @@
 //    content under the same name, so this cache survives shell bumps and
 //    phones never re-download the artwork. Bump ART_VERSION only if an
 //    asset's content actually changes under an existing filename.
-const SHELL_VERSION = "v12";
-const ART_VERSION = "v3";
+const SHELL_VERSION = "v13";
+const ART_VERSION = "v4";
 const SHELL_CACHE = `fox-runner-shell-${SHELL_VERSION}`;
 const ART_CACHE = `fox-runner-art-${ART_VERSION}`;
 const KEEP = [SHELL_CACHE, ART_CACHE];
