@@ -303,6 +303,29 @@ function dogChaseTuning(score) {
 // gentle arc; hitting any dog stops it.
 const THROW = { vx: -430, vy: -140, gravity: 900, cooldown: 0.4, size: 20 };
 
+/* The bluebird: a flying hazard. It crosses at jump height, so a fox on
+ * the ground is always safe — it punishes being airborne at the wrong
+ * moment (mid-jump for an acorn or an obstacle). Touching it ends the run.
+ */
+const BIRD = {
+  src: "assets/obstacles/bluebird.png",
+  trim: { sx: 33, sy: 0, sw: 1489, sh: 1024 },
+  w: 48, h: 33,
+  availableFrom: 1250,   // score at which bluebirds start appearing
+  gapMin: 1900,          // px of travel between bird spawns
+  gapMax: 3800,
+  speedFactor: 1.12,     // flies a little faster than the ground scrolls
+  altMin: 88,            // center height above the surface; the minimum
+  altMax: 135,           // keeps it clear of a grounded fox (62 tall)
+  bobAmp: 7,             // gentle sine bob
+  bobRate: 3.5,
+  // No obstacle/dog/acorn may sit in this corridor around the spawn point,
+  // so a bird never crosses right where a jump is being forced.
+  corridorBehind: 250,
+  corridorAhead: 160,
+  hitbox: { left: 0.14, right: 0.12, top: 0.18, bottom: 0.18 },
+};
+
 const HISCORE_KEY = "foxRunnerHiScore";
 
 // ---------------------------------------------------------------------------
@@ -388,6 +411,7 @@ const IMAGE_SOURCES = {
   groundGrass: "assets/environment/ground_tile_2.png",
   acorn: "assets/collectibles/acorn.png",
   acornIcon: "assets/ui/acorn_icon.png",
+  bluebird: "assets/obstacles/bluebird.png",
   foxRun1: "assets/fox/fox/fox_run_01.png",
   foxRun2: "assets/fox/fox/fox_run_02.png",
   foxRun3: "assets/fox/fox/fox_run_03.png",
@@ -932,6 +956,78 @@ class AcornShot {
   }
 }
 
+// A bluebird crossing the sky at jump height. Lethal on contact.
+class Bird {
+  constructor(x, centerY, image) {
+    this.image = image;
+    this.w = BIRD.w;
+    this.h = BIRD.h;
+    this.x = x;
+    this.baseY = centerY - this.h / 2;
+    this.y = this.baseY;
+    this.age = 0;
+  }
+
+  update(dt, speed) {
+    this.age += dt;
+    this.x -= speed * BIRD.speedFactor * dt;
+    this.y = this.baseY + Math.sin(this.age * BIRD.bobRate * 2) * BIRD.bobAmp;
+  }
+
+  isOffscreen() {
+    return this.x + this.w < -30;
+  }
+
+  getHitbox() {
+    return shrinkBox(this.x, this.y, this.w, this.h, BIRD.hitbox);
+  }
+
+  draw(ctx) {
+    const t = BIRD.trim;
+    // Flip to fly leftward, with a slight wing-beat tilt.
+    ctx.save();
+    ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+    ctx.scale(-1, 1);
+    ctx.rotate(Math.sin(this.age * 9) * 0.05);
+    ctx.drawImage(this.image, t.sx, t.sy, t.sw, t.sh, -this.w / 2, -this.h / 2, this.w, this.h);
+    ctx.restore();
+  }
+}
+
+// Sends the odd bluebird across once the score allows, only through
+// airspace where no jump is being forced.
+class BirdSpawner {
+  constructor(groundY) {
+    this.groundY = groundY;
+    this.reset();
+  }
+
+  reset() {
+    this.distanceUntilNext = BIRD.gapMin;
+  }
+
+  update(dt, speed, score, birds, obstacles, dogs, acorns, image) {
+    if (score < BIRD.availableFrom) return;
+    this.distanceUntilNext -= speed * dt;
+    if (this.distanceUntilNext > 0) return;
+
+    const spawnX = GAME_W + 40;
+    const inCorridor = (x, w) =>
+      x + w > spawnX - BIRD.corridorBehind && x < spawnX + BIRD.corridorAhead;
+    if (
+      obstacles.some((o) => inCorridor(o.x, o.w)) ||
+      dogs.some((d) => d.state === "sleeping" && inCorridor(d.x, d.w)) ||
+      acorns.some((a) => inCorridor(a.x, a.w))
+    ) {
+      this.distanceUntilNext = 130; // try again shortly
+      return;
+    }
+    const centerY = this.groundY - (BIRD.altMin + Math.random() * (BIRD.altMax - BIRD.altMin));
+    birds.push(new Bird(spawnX, centerY, image));
+    this.distanceUntilNext = BIRD.gapMin + Math.random() * (BIRD.gapMax - BIRD.gapMin);
+  }
+}
+
 // A floating (or grounded) acorn the fox catches by touching it.
 class Acorn {
   constructor(x, centerY, image) {
@@ -1220,6 +1316,8 @@ class Game {
     this.spawner = new SpawnDirector(this.groundY, foxHb.w);
     this.acornSpawner = new AcornSpawner(this.groundY);
     this.dogDirector = new DogDirector(this.groundY);
+    this.birdSpawner = new BirdSpawner(this.groundY);
+    this.birds = [];
 
     this.state = "ready"; // ready | running | gameover
     this.obstacles = [];
@@ -1334,6 +1432,8 @@ class Game {
     this.spawner.reset();
     this.acornSpawner.reset();
     this.dogDirector.reset();
+    this.birdSpawner.reset();
+    this.birds = [];
   }
 
   throwAcorn() {
@@ -1404,6 +1504,12 @@ class Game {
     this.acorns = this.acorns.filter((ac) => !ac.isOffscreen() && !ac.collected);
     for (const shot of this.shots) shot.update(dt, this.groundY);
     this.shots = this.shots.filter((s) => !s.dead);
+    this.birdSpawner.update(
+      dt, this.speed, this.score, this.birds,
+      this.obstacles, this.dogDirector.dogs, this.acorns, this.images.bluebird
+    );
+    for (const b of this.birds) b.update(dt, this.speed);
+    this.birds = this.birds.filter((b) => !b.isOffscreen());
 
     // Thrown acorns vs the dogs — one acorn takes out one dog.
     for (const shot of this.shots) {
@@ -1422,6 +1528,14 @@ class Game {
       if (intersects(foxBox, ob.getHitbox())) {
         this.endRun();
         break;
+      }
+    }
+    if (this.state === "running") {
+      for (const b of this.birds) {
+        if (intersects(foxBox, b.getHitbox())) {
+          this.endRun();
+          break;
+        }
       }
     }
     if (this.state === "running") {
@@ -1562,6 +1676,11 @@ class Game {
       const hb = d.getHitbox();
       if (hb) ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
     }
+    ctx.strokeStyle = "rgba(120, 40, 255, 0.9)";
+    for (const b of this.birds) {
+      const hb = b.getHitbox();
+      ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
+    }
     ctx.restore();
   }
 
@@ -1679,6 +1798,7 @@ class Game {
     for (const ob of this.obstacles) ob.draw(ctx);
     for (const ac of this.acorns) ac.draw(ctx);
     for (const d of this.dogDirector.dogs) d.draw(ctx);
+    for (const b of this.birds) b.draw(ctx);
     this.fox.draw(ctx, this.state);
     for (const shot of this.shots) shot.draw(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
