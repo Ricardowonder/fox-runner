@@ -60,6 +60,9 @@ const FOX_SHIFT_FORWARD = 150;     // px/s ease toward the chase position
 const FOX_SHIFT_BACK = 70;         // px/s ease home after the chase
 
 /* Source trims for the fox poses (fixed pixel rects measured from the art).
+ * NOTE: all trim rects in this file are in the pixel space of the SHIPPED
+ * art (downscaled to max 512px for load size). If the art is ever
+ * re-exported at another resolution, rescale every trim with it.
  * The eight run frames share ONE union rect so they render at a single
  * common scale — per-frame differences (the gather pose sitting higher,
  * feet lifting) stay inside the box and read as animation, not size jitter.
@@ -67,16 +70,16 @@ const FOX_SHIFT_BACK = 70;         // px/s ease home after the chase
  * edge line up across poses even though their content widths differ.
  */
 const FOX_TRIMS = {
-  run: { sx: 78, sy: 128, sw: 1380, sh: 780 }, // union of fox_run_01..08
-  foxJump: { sx: 65, sy: 24, sw: 1431, sh: 976 },
-  foxLand: { sx: 0, sy: 0, sw: 1520, sh: 1000 },
-  foxHit: { sx: 0, sy: 4, sw: 1536, sh: 1020 },
+  run: { sx: 26, sy: 43, sw: 460, sh: 260 }, // union of fox_run_01..08
+  foxJump: { sx: 22, sy: 8, sw: 477, sh: 325 },
+  foxLand: { sx: 0, sy: 0, sw: 507, sh: 333 },
+  foxHit: { sx: 0, sy: 1, sw: 512, sh: 340 },
   // Throw sequence. hScale draws the rearing poses taller than the run
   // height (the fox stands up to throw); hitbox stays the normal box.
-  foxThrow1: { sx: 84, sy: 101, sw: 1321, sh: 765, hScale: 1.0 },
-  foxThrow2: { sx: 65, sy: 33, sw: 1431, sh: 991, hScale: 1.26 },
-  foxThrow3: { sx: 23, sy: 10, sw: 1477, sh: 1014, hScale: 1.29 },
-  foxThrow4: { sx: 49, sy: 9, sw: 1447, sh: 981, hScale: 1.06 },
+  foxThrow1: { sx: 28, sy: 34, sw: 440, sh: 255, hScale: 1.0 },
+  foxThrow2: { sx: 22, sy: 11, sw: 477, sh: 330, hScale: 1.26 },
+  foxThrow3: { sx: 8, sy: 3, sw: 492, sh: 338, hScale: 1.29 },
+  foxThrow4: { sx: 16, sy: 3, sw: 482, sh: 327, hScale: 1.06 },
 };
 
 // Throw animation timing: 4 frames; the projectile leaves the paw at the
@@ -124,7 +127,7 @@ const OBSTACLE_TYPES = {
     h: 32, sizeClass: "small", animal: true, pairable: true,
     weight: 3, availableFrom: 0, sink: 3,
     flip: true, // face the approaching fox (hitbox insets already mirrored)
-    trim: { sx: 168, sy: 30, sw: 1242, sh: 960 },
+    trim: { sx: 56, sy: 10, sw: 414, sh: 320 },
     hitbox: { left: 0.10, right: 0.08, top: 0.12, bottom: 0.02 },
   },
   rabbit: {
@@ -132,27 +135,27 @@ const OBSTACLE_TYPES = {
     h: 38, sizeClass: "small", animal: true, pairable: true,
     weight: 2.5, availableFrom: 0, sink: 3,
     flip: true, // face the approaching fox (hitbox insets already mirrored)
-    trim: { sx: 192, sy: 6, sw: 1236, sh: 1008 },
+    trim: { sx: 64, sy: 2, sw: 412, sh: 336 },
     hitbox: { left: 0.10, right: 0.10, top: 0.18, bottom: 0.02 },
   },
   rock: {
     src: "assets/obstacles/rock.png",
     h: 40, sizeClass: "medium", animal: false, pairable: true,
     weight: 2.5, availableFrom: 400, sink: 4,
-    trim: { sx: 42, sy: 42, sw: 1452, sh: 912 },
+    trim: { sx: 14, sy: 14, sw: 484, sh: 304 },
     hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
   },
   log: {
     src: "assets/obstacles/log.png",
     h: 34, sizeClass: "medium", animal: false, pairable: true,
     weight: 3, availableFrom: 800, sink: 4,
-    trim: { sx: 55, sy: 90, sw: 1670, sh: 693 },
+    trim: { sx: 16, sy: 26, sw: 482, sh: 200 },
     hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 },
   },
   stump: {
     src: "assets/obstacles/stump.png",
     h: 46, sizeClass: "large", animal: false, pairable: false,
-    trim: { sx: 102, sy: 108, sw: 1362, sh: 834 },
+    trim: { sx: 34, sy: 36, sw: 454, sh: 278 },
     weight: 2, availableFrom: 1200, sink: 5,
     hitbox: { left: 0.12, right: 0.18, top: 0.10, bottom: 0.02 },
   },
@@ -206,7 +209,7 @@ const CLOSE_PAIR_SAFETY = 0.78;     // fraction of theoretical clearance we allo
  */
 const ACORN = {
   src: "assets/collectibles/acorn.png",
-  trim: { sx: 0, sy: 53, sw: 1236, sh: 1201 },
+  trim: { sx: 0, sy: 22, sw: 505, sh: 490 },
   w: 26, h: 25,
   pickupPad: 4,          // extra px around the sprite for a forgiving catch
   availableFrom: 250,    // score at which acorns start appearing
@@ -248,13 +251,13 @@ const DOG = {
   // Per-pose `sink` pushes the sprite down into the grass (art has soft
   // transparent edges at the bottom); default is 3 when unset.
   poses: {
-    sleep: { trim: { sx: 15, sy: 34, sw: 1509, sh: 990 }, h: 44, sink: 7 },
-    waking: { trim: { sx: 32, sy: 226, sw: 1458, sh: 533 }, h: 34, sink: 5 },
-    headShake: { trim: { sx: 0, sy: 30, sw: 1523, sh: 994 }, h: 50 },
-    alert: { trim: { sx: 23, sy: 19, sw: 1481, sh: 957 }, h: 48 },
-    run: { trim: { sx: 0, sy: 0, sw: 1536, sh: 1024 }, h: 56 },
-    crash: { trim: { sx: 0, sy: 19, sw: 1522, sh: 1005 }, h: 54 },
-    bite: { trim: { sx: 23, sy: 11, sw: 1499, sh: 1013 }, h: 58 },
+    sleep: { trim: { sx: 5, sy: 11, sw: 503, sh: 330 }, h: 44, sink: 7 },
+    waking: { trim: { sx: 11, sy: 75, sw: 486, sh: 177 }, h: 34, sink: 5 },
+    headShake: { trim: { sx: 0, sy: 10, sw: 508, sh: 331 }, h: 50 },
+    alert: { trim: { sx: 8, sy: 6, sw: 494, sh: 319 }, h: 48 },
+    run: { trim: { sx: 0, sy: 0, sw: 512, sh: 341 }, h: 56 },
+    crash: { trim: { sx: 0, sy: 6, sw: 507, sh: 335 }, h: 54 },
+    bite: { trim: { sx: 8, sy: 4, sw: 500, sh: 337 }, h: 58 },
   },
   wakeDurations: { waking: 0.35, headShake: 0.3, alert: 0.25 },
   runFps: 20,
@@ -309,7 +312,7 @@ const THROW = { vx: -430, vy: -140, gravity: 900, cooldown: 0.4, size: 20 };
  */
 const BIRD = {
   src: "assets/obstacles/bluebird.png",
-  trim: { sx: 33, sy: 0, sw: 1489, sh: 1024 },
+  trim: { sx: 11, sy: 0, sw: 496, sh: 341 },
   w: 48, h: 33,
   availableFrom: 1250,   // score at which bluebirds start appearing
   gapMin: 1900,          // px of travel between bird spawns
