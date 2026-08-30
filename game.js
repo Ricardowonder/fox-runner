@@ -1707,16 +1707,11 @@ class Game {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
     ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
-    outlined("GAME OVER", GAME_W / 2, 42, "bold 44px 'Courier New', Courier, monospace", 6);
-    outlined("The dog caught up this time.", GAME_W / 2, 76, "bold 16px 'Courier New', Courier, monospace");
+    outlined("GAME OVER", GAME_W / 2, 108, "bold 44px 'Courier New', Courier, monospace", 6);
 
     const pad = (n) => String(n).padStart(5, "0");
-    outlined(`SCORE ${pad(this.score)}   HI ${pad(this.hiScore)}`, GAME_W / 2, 112,
+    outlined(`SCORE ${pad(this.score)}   HI ${pad(this.hiScore)}`, GAME_W / 2, 150,
       "bold 18px 'Courier New', Courier, monospace");
-
-    // Speech lines over the characters in the art.
-    outlined("Got you!", 146, 156, "bold 15px 'Courier New', Courier, monospace");
-    outlined("Shucks...", 698, 158, "bold 15px 'Courier New', Courier, monospace");
 
     if (this.blinkTime % 1 < 0.65) {
       outlined("Press ENTER or tap to restart", GAME_W / 2, 281,
