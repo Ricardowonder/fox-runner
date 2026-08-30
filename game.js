@@ -132,8 +132,8 @@ const OBSTACLE_TYPES = {
     // Cowering poses shown as the fox bears down and leaps over. Purely
     // cosmetic — see Obstacle.draw, the collision box never changes.
     hide: [
-      { key: "hedgehogHide1", trim: { sx: 0, sy: 87, sw: 1462, sh: 937 }, hScale: 0.97 },
-      { key: "hedgehogHide2", trim: { sx: 177, sy: 34, sw: 1279, sh: 966 }, hScale: 0.92 },
+      { key: "hedgehogHide1", trim: { sx: 60, sy: 58, sw: 417, sh: 237 }, hScale: 0.97 },
+      { key: "hedgehogHide2", trim: { sx: 66, sy: 11, sw: 403, sh: 301 }, hScale: 0.92 },
     ],
   },
   rabbit: {
@@ -144,8 +144,8 @@ const OBSTACLE_TYPES = {
     trim: { sx: 64, sy: 2, sw: 412, sh: 336 },
     hitbox: { left: 0.10, right: 0.10, top: 0.18, bottom: 0.02 },
     hide: [
-      { key: "rabbitHide1", trim: { sx: 0, sy: 7, sw: 1522, sh: 991 }, hScale: 0.94 },
-      { key: "rabbitHide2", trim: { sx: 0, sy: 21, sw: 1523, sh: 1003 }, hScale: 0.86 },
+      { key: "rabbitHide1", trim: { sx: 30, sy: 58, sw: 477, sh: 231 }, hScale: 0.94 },
+      { key: "rabbitHide2", trim: { sx: 47, sy: 88, sw: 460, sh: 199 }, hScale: 0.86 },
     ],
   },
   rock: {
