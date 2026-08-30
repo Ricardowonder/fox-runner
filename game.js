@@ -640,6 +640,25 @@ function writeHiScore(score) {
 // Entities
 // ---------------------------------------------------------------------------
 
+/* Rounded-rectangle path. Safari only gained ctx.roundRect in 16.4, and
+ * an older iPad threw here on the very first frame of the start screen,
+ * which killed the animation loop and left a blank canvas.
+ */
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+    return;
+  }
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
 function intersects(a, b) {
   return (
     a.x < b.x + b.w &&
@@ -1689,13 +1708,20 @@ class Game {
   }
 
   frame(time) {
-    const dt = Math.min((time - this.lastTime) / 1000, 0.05); // clamp tab-switch spikes
-    this.lastTime = time;
-    this.blinkTime += dt;
+    try {
+      const dt = Math.min((time - this.lastTime) / 1000, 0.05); // clamp tab-switch spikes
+      this.lastTime = time;
+      this.blinkTime += dt;
 
-    if (this.state === "running") this.update(dt);
-    this.draw();
-
+      if (this.state === "running") this.update(dt);
+      this.draw();
+    } catch (err) {
+      // Never let one bad frame stop the game for good; log once and carry on.
+      if (!this.loggedFrameError) {
+        this.loggedFrameError = true;
+        console.error("frame error", err);
+      }
+    }
     requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -1930,8 +1956,7 @@ class Game {
     ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
     ctx.strokeStyle = "rgba(40, 55, 30, 0.9)";
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(x, y, keyW, keyH, 5);
+    roundRectPath(ctx, x, y, keyW, keyH, 5);
     ctx.fill();
     ctx.stroke();
     ctx.font = "bold 14px 'Courier New', Courier, monospace";
@@ -1960,8 +1985,7 @@ class Game {
     const py = 108;
     ctx.save();
     ctx.fillStyle = "rgba(30, 45, 25, 0.55)";
-    ctx.beginPath();
-    ctx.roundRect(px, py, panelW, panelH, 10);
+    roundRectPath(ctx, px, py, panelW, panelH, 10);
     ctx.fill();
     // All keycaps share the widest key's width so the labels line up.
     ctx.font = "bold 14px 'Courier New', Courier, monospace";
@@ -2139,15 +2163,58 @@ class Game {
   ctx.fillText("LOADING...", GAME_W / 2, GAME_H / 2);
 })();
 
+const REPAIR_KEY = "foxRunnerRepaired";
+
+/* If the artwork fails to load, the most likely cause is a stale cached
+ * build pointing at asset paths that have since been renamed. Clear the
+ * service worker and caches and reload once - otherwise the device stays
+ * broken until someone manually clears site data. The flag keeps it to a
+ * single attempt so a genuine outage cannot cause a reload loop.
+ */
+async function repairAndReload(err) {
+  console.error(err);
+  let alreadyTried = false;
+  try {
+    alreadyTried = sessionStorage.getItem(REPAIR_KEY) === "1";
+    sessionStorage.setItem(REPAIR_KEY, "1");
+  } catch (e) {
+    /* private mode: fall through and just show the message */
+  }
+  if (alreadyTried) {
+    const ctx = document.getElementById("game").getContext("2d");
+    ctx.fillStyle = "#1c2a1e";
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.font = "bold 20px 'Courier New', Courier, monospace";
+    ctx.fillText("Could not load the game", GAME_W / 2, GAME_H / 2 - 14);
+    ctx.font = "15px 'Courier New', Courier, monospace";
+    ctx.fillText("Check your connection and reload", GAME_W / 2, GAME_H / 2 + 16);
+    return;
+  }
+  try {
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) {
+    /* best effort */
+  }
+  location.reload();
+}
+
 loadAssets()
   .then((images) => {
+    try {
+      sessionStorage.removeItem(REPAIR_KEY); // healthy boot; allow future repairs
+    } catch (e) {
+      /* ignore */
+    }
     // Exposed for debugging/testing only — not part of the game API.
     window.foxRunner = new Game(document.getElementById("game"), images);
   })
-  .catch((err) => {
-    console.error(err);
-    const ctx = document.getElementById("game").getContext("2d");
-    ctx.font = "16px monospace";
-    ctx.fillStyle = "#000";
-    ctx.fillText("Failed to load game assets: " + err.message, 20, 40);
-  });
+  .catch(repairAndReload);

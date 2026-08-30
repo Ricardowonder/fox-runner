@@ -7,7 +7,7 @@
 //    content under the same name, so this cache survives shell bumps and
 //    phones never re-download the artwork. Bump ART_VERSION only if an
 //    asset's content actually changes under an existing filename.
-const SHELL_VERSION = "v13";
+const SHELL_VERSION = "v14";
 const ART_VERSION = "v4";
 const SHELL_CACHE = `fox-runner-shell-${SHELL_VERSION}`;
 const ART_CACHE = `fox-runner-art-${ART_VERSION}`;
@@ -47,11 +47,18 @@ self.addEventListener("fetch", (event) => {
   const networkFirst = request.mode === "navigate" || url.pathname.endsWith("game.js");
 
   if (networkFirst) {
+    // no-store so iOS's own HTTP cache cannot hand back a stale shell that
+    // points at renamed assets; the cache below still covers offline use.
+    const fresh = request.mode === "navigate"
+      ? fetch(request.url, { cache: "no-store" })
+      : fetch(request);
     event.respondWith(
-      fetch(request)
+      fresh
         .then((response) => {
-          const copy = response.clone();
-          caches.open(SHELL_CACHE).then((cache) => cache.put(request, copy));
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(SHELL_CACHE).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
         .catch(() => caches.match(request, { ignoreSearch: request.mode === "navigate" }))
