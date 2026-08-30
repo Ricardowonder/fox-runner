@@ -279,7 +279,23 @@ const DOG = {
     { score: 4000, max: 3 },
   ],
   packStagger: 65, // px: each extra pack member hangs this much further back
+  // In pack territory dogs spawn closer together, and each chaser burns
+  // slower (creeps rather than pounces) so a second dog has time to join
+  // the hunt before the first one bites. It still bites in the end.
+  packGapMin: 1500,
+  packGapMax: 3000,
+  packJoinGraceSeconds: 1.5, // obstacle grace for dogs joining an active chase
+  chaseTuning: [
+    { score: 0, rubberBandMin: 0.55, stamina: 9 },
+    { score: 2000, rubberBandMin: 0.26, stamina: 16 },
+  ],
 };
+
+function dogChaseTuning(score) {
+  let t = DOG.chaseTuning[0];
+  for (const band of DOG.chaseTuning) if (score >= band.score) t = band;
+  return t;
+}
 
 // Thrown acorns (ArrowLeft). Screen-relative backward flight with a
 // gentle arc; hitting any dog stops it.
@@ -390,6 +406,7 @@ const IMAGE_SOURCES = {
   foxThrow3: "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_03_release.png",
   foxThrow4: "assets/fox/fox-acorn-throw-action/assets/fox/fox_throw_acorn_04_recover.png",
   introBg: "assets/fox-runner-loading-page/fox_runner_loading_art_wide_clean.png",
+  gameOverBg: "assets/fox-runner-game-over-page-wide 2/fox_runner_game_over_art_wide_clean.png",
 };
 
 function loadImage(src) {
@@ -717,7 +734,7 @@ class Dog {
     this.syncBoxToPose();
   }
 
-  update(dt, speed, fox) {
+  update(dt, speed, fox, score) {
     this.stateTime += dt;
     switch (this.state) {
       case "sleeping": {
@@ -755,11 +772,12 @@ class Dog {
       case "chasing": {
         this.chaseTime += dt;
         this.animTime += dt;
+        const tuning = dogChaseTuning(score);
         // packOffset staggers pack members so they don't overlap.
         const gap = fox.x - (this.x + this.w) - this.packOffset;
-        const band = Math.min(Math.max(gap / DOG.chase.rubberBandDist, DOG.chase.rubberBandMin), 1);
+        const band = Math.min(Math.max(gap / DOG.chase.rubberBandDist, tuning.rubberBandMin), 1);
         this.x += (DOG.chase.base + speed * DOG.chase.perSpeed) * band * dt;
-        if (this.chaseTime > DOG.chase.stamina) this.state = "tiring";
+        if (this.chaseTime > tuning.stamina) this.state = "tiring";
         break;
       }
       case "tiring":
@@ -802,8 +820,13 @@ class Dog {
   }
 }
 
-// Spawns one dog at a time once the score allows, with clear ground
-// around it so the jump over the sleeping dog is always fair.
+/* Spawns dogs once the score allows, with clear ground around each
+ * sleeping dog so the jump over it is always fair. Early game allows one
+ * dog at a time; past DOG.packSizes thresholds a pack can build up if
+ * chasers aren't cleared with acorns. A new sleeping dog only appears once
+ * every existing dog is already up and chasing (or on its way out), so
+ * two sleeping dogs never stack on the path.
+ */
 class DogDirector {
   constructor(groundY) {
     this.groundY = groundY;
@@ -811,17 +834,39 @@ class DogDirector {
   }
 
   reset() {
-    this.dog = null;
+    this.dogs = [];
     this.distanceUntilNext = DOG.gapMin;
   }
 
+  // Convenience for collision/draw code.
+  get dog() {
+    return this.dogs[0] || null;
+  }
+
+  maxConcurrent(score) {
+    let max = 1;
+    for (const band of DOG.packSizes) if (score >= band.score) max = band.max;
+    return max;
+  }
+
   update(dt, speed, score, fox, obstacles, spawner, images) {
-    if (this.dog) {
-      this.dog.update(dt, speed, fox);
-      if (this.dog.done) this.dog = null;
-      else return; // one at a time
-    }
+    for (const d of this.dogs) d.update(dt, speed, fox, score);
+    this.dogs = this.dogs.filter((d) => !d.done);
+
+    // Keep the chasing pack staggered: front-most dog presses the fox,
+    // the others hang progressively further back — and promote when the
+    // leader is stunned.
+    const chasers = this.dogs
+      .filter((d) => d.state === "chasing")
+      .sort((a, b) => b.x - a.x);
+    chasers.forEach((d, i) => (d.packOffset = i * DOG.packStagger));
+
     if (score < DOG.availableFrom) return;
+    if (this.dogs.length >= this.maxConcurrent(score)) return;
+    // Only one dog may be in its sleeping/waking phase at a time.
+    if (this.dogs.some((d) => d.state !== "chasing" && d.state !== "tiring" && d.state !== "stunned")) {
+      return;
+    }
     this.distanceUntilNext -= speed * dt;
     if (this.distanceUntilNext > 0) return;
 
@@ -832,13 +877,19 @@ class DogDirector {
       this.distanceUntilNext = 140; // try again shortly
       return;
     }
-    this.dog = new Dog(GAME_W + 40, this.groundY, images);
-    // Breathing room for the whole encounter opening — no fresh obstacles
-    // until the chase is underway (see DOG.spawnGraceSeconds).
+    // Breathing room for the encounter opening — full grace for a fresh
+    // encounter, a shorter one for dogs joining an already-active chase
+    // (late game shouldn't become obstacle-free).
+    const joining = this.dogs.length > 0;
+    this.dogs.push(new Dog(GAME_W + 40, this.groundY, images));
     spawner.distanceUntilNext = Math.max(
-      spawner.distanceUntilNext, speed * DOG.spawnGraceSeconds
+      spawner.distanceUntilNext,
+      speed * (joining ? DOG.packJoinGraceSeconds : DOG.spawnGraceSeconds)
     );
-    this.distanceUntilNext = DOG.gapMin + Math.random() * (DOG.gapMax - DOG.gapMin);
+    // Pack territory spawns dogs closer together.
+    const gapMin = this.maxConcurrent(score) > 1 ? DOG.packGapMin : DOG.gapMin;
+    const gapMax = this.maxConcurrent(score) > 1 ? DOG.packGapMax : DOG.gapMax;
+    this.distanceUntilNext = gapMin + Math.random() * (gapMax - gapMin);
   }
 }
 
@@ -1330,9 +1381,9 @@ class Game {
     this.dogDirector.update(dt, this.speed, this.score, this.fox, this.obstacles, this.spawner, this.images);
     // A woken dog pushes the fox toward mid-screen: the chase fits on
     // screen behind him and obstacles arrive with less warning.
-    const activeDog = this.dogDirector.dog;
-    const dogPressure = activeDog && activeDog.state !== "sleeping" &&
-      activeDog.state !== "stunned" && activeDog.state !== "tiring";
+    const dogPressure = this.dogDirector.dogs.some(
+      (d) => d.state !== "sleeping" && d.state !== "stunned" && d.state !== "tiring"
+    );
     this.fox.targetX = dogPressure ? FOX_CHASE_X : FOX_X;
     this.throwCooldown = Math.max(0, this.throwCooldown - dt);
     if (this.pendingRelease != null) {
@@ -1351,13 +1402,12 @@ class Game {
     for (const shot of this.shots) shot.update(dt, this.groundY);
     this.shots = this.shots.filter((s) => !s.dead);
 
-    // Thrown acorns vs the dog.
-    const dog = this.dogDirector.dog;
-    if (dog) {
-      for (const shot of this.shots) {
-        if (intersects(shot.getBox(), dog.getShotBox())) {
+    // Thrown acorns vs the dogs — one acorn takes out one dog.
+    for (const shot of this.shots) {
+      for (const d of this.dogDirector.dogs) {
+        if (d.state !== "stunned" && intersects(shot.getBox(), d.getShotBox())) {
           shot.dead = true;
-          dog.stun();
+          d.stun();
           break;
         }
       }
@@ -1371,11 +1421,14 @@ class Game {
         break;
       }
     }
-    if (this.state === "running" && dog) {
-      const dogBox = dog.getHitbox();
-      if (dogBox && intersects(foxBox, dogBox)) {
-        dog.bite(); // teeth out for the game-over scene
-        this.endRun();
+    if (this.state === "running") {
+      for (const d of this.dogDirector.dogs) {
+        const dogBox = d.getHitbox();
+        if (dogBox && intersects(foxBox, dogBox)) {
+          d.bite(); // teeth out for the game-over scene
+          this.endRun();
+          break;
+        }
       }
     }
 
@@ -1501,13 +1554,10 @@ class Game {
       const hb = ob.getHitbox();
       ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
     }
-    const dog = this.dogDirector.dog;
-    if (dog) {
-      const hb = dog.getHitbox();
-      if (hb) {
-        ctx.strokeStyle = "rgba(255, 140, 0, 0.9)";
-        ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
-      }
+    ctx.strokeStyle = "rgba(255, 140, 0, 0.9)";
+    for (const d of this.dogDirector.dogs) {
+      const hb = d.getHitbox();
+      if (hb) ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
     }
     ctx.restore();
   }
@@ -1559,26 +1609,6 @@ class Game {
     rows.forEach(([key, label], i) => {
       this.drawKeycap(px + 18, py + 12 + i * rowH, keyW, key, label);
     });
-    ctx.restore();
-  }
-
-  drawCenteredText(lines) {
-    const { ctx } = this;
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    let y = GAME_H * 0.34;
-    for (const line of lines) {
-      ctx.font = line.font;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
-      ctx.lineWidth = 4;
-      if (!line.blink || this.blinkTime % 1 < 0.65) {
-        ctx.strokeText(line.text, GAME_W / 2, y);
-        ctx.fillText(line.text, GAME_W / 2, y);
-      }
-      y += line.gap;
-    }
     ctx.restore();
   }
 
@@ -1635,21 +1665,64 @@ class Game {
       return;
     }
 
+    // Game over: hold the caught moment for a beat, then cut to the
+    // dedicated game-over page.
+    if (this.state === "gameover" && performance.now() - this.gameOverAt > 800) {
+      this.drawGameOver();
+      return;
+    }
+
     this.drawBackground();
     for (const ob of this.obstacles) ob.draw(ctx);
     for (const ac of this.acorns) ac.draw(ctx);
-    if (this.dogDirector.dog) this.dogDirector.dog.draw(ctx);
+    for (const d of this.dogDirector.dogs) d.draw(ctx);
     this.fox.draw(ctx, this.state);
     for (const shot of this.shots) shot.draw(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
     this.drawHud();
+  }
 
-    if (this.state === "gameover") {
-      this.drawCenteredText([
-        { text: "GAME OVER", font: "bold 40px 'Courier New', Courier, monospace", gap: 44 },
-        { text: "Press ENTER or tap to restart", font: "bold 19px 'Courier New', Courier, monospace", gap: 0, blink: true },
-      ]);
+  // Game-over page: the smug dog / sheepish fox art as a full-canvas
+  // backdrop, with the title, speech lines, final score, and restart
+  // prompt drawn on top.
+  drawGameOver() {
+    const { ctx } = this;
+    const img = this.images.gameOverBg;
+
+    // Cover the canvas, bottom-anchored — same treatment as the intro.
+    const scale = Math.max(GAME_W / img.width, GAME_H / img.height);
+    const dw = img.width * scale;
+    const dh = img.height * scale;
+    ctx.drawImage(img, (GAME_W - dw) / 2, GAME_H - dh, dw, dh);
+
+    const outlined = (text, x, y, font, lineWidth = 4) => {
+      ctx.font = font;
+      ctx.lineWidth = lineWidth;
+      ctx.strokeText(text, x, y);
+      ctx.fillText(text, x, y);
+    };
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
+    outlined("GAME OVER", GAME_W / 2, 42, "bold 44px 'Courier New', Courier, monospace", 6);
+    outlined("The dog caught up this time.", GAME_W / 2, 76, "bold 16px 'Courier New', Courier, monospace");
+
+    const pad = (n) => String(n).padStart(5, "0");
+    outlined(`SCORE ${pad(this.score)}   HI ${pad(this.hiScore)}`, GAME_W / 2, 112,
+      "bold 18px 'Courier New', Courier, monospace");
+
+    // Speech lines over the characters in the art.
+    outlined("Got you!", 146, 156, "bold 15px 'Courier New', Courier, monospace");
+    outlined("Shucks...", 698, 158, "bold 15px 'Courier New', Courier, monospace");
+
+    if (this.blinkTime % 1 < 0.65) {
+      outlined("Press ENTER or tap to restart", GAME_W / 2, 281,
+        "bold 19px 'Courier New', Courier, monospace");
     }
+    ctx.restore();
   }
 }
 

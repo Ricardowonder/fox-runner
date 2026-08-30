@@ -1,7 +1,7 @@
 // Fox Runner service worker: precache the app shell, then runtime-cache
 // everything else (game art) so the game works offline after first load.
 // Bump CACHE_VERSION when shipping changes so old caches get evicted.
-const CACHE_VERSION = "fox-runner-v2";
+const CACHE_VERSION = "fox-runner-v3";
 
 const PRECACHE = [
   ".",
