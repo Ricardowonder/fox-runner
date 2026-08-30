@@ -129,6 +129,12 @@ const OBSTACLE_TYPES = {
     flip: true, // face the approaching fox (hitbox insets already mirrored)
     trim: { sx: 56, sy: 10, sw: 414, sh: 320 },
     hitbox: { left: 0.10, right: 0.08, top: 0.12, bottom: 0.02 },
+    // Cowering poses shown as the fox bears down and leaps over. Purely
+    // cosmetic — see Obstacle.draw, the collision box never changes.
+    hide: [
+      { key: "hedgehogHide1", trim: { sx: 0, sy: 87, sw: 1462, sh: 937 }, hScale: 0.97 },
+      { key: "hedgehogHide2", trim: { sx: 177, sy: 34, sw: 1279, sh: 966 }, hScale: 0.92 },
+    ],
   },
   rabbit: {
     src: "assets/obstacles/rabbit.png",
@@ -137,6 +143,10 @@ const OBSTACLE_TYPES = {
     flip: true, // face the approaching fox (hitbox insets already mirrored)
     trim: { sx: 64, sy: 2, sw: 412, sh: 336 },
     hitbox: { left: 0.10, right: 0.10, top: 0.18, bottom: 0.02 },
+    hide: [
+      { key: "rabbitHide1", trim: { sx: 0, sy: 7, sw: 1522, sh: 991 }, hScale: 0.94 },
+      { key: "rabbitHide2", trim: { sx: 0, sy: 21, sw: 1523, sh: 1003 }, hScale: 0.86 },
+    ],
   },
   rock: {
     src: "assets/obstacles/rock.png",
@@ -162,6 +172,10 @@ const OBSTACLE_TYPES = {
 };
 
 const TYPE_FADE_IN = 300; // score span over which a newly available type ramps to full weight
+
+// Cowering animals: how close the fox must be to spook them, how near
+// "overhead" counts as a leap-over, and how long the pose lingers after.
+const OBSTACLE_HIDE = { noticeDistance: 190, overhead: 105, hold: 0.45 };
 
 /* Difficulty bands. Parameters are interpolated smoothly between anchors by
  * score, so there are no sudden jumps at band edges. Gap values are in
@@ -415,6 +429,10 @@ const IMAGE_SOURCES = {
   acorn: "assets/collectibles/acorn.png",
   acornIcon: "assets/ui/acorn_icon.png",
   bluebird: "assets/obstacles/bluebird.png",
+  hedgehogHide1: "assets/obstacles/hedgehog_hide_1.png",
+  hedgehogHide2: "assets/obstacles/hedgehog_hide_2.png",
+  rabbitHide1: "assets/obstacles/rabbit_hide_1.png",
+  rabbitHide2: "assets/obstacles/rabbit_hide_2.png",
   foxRun1: "assets/fox/fox/fox_run_01.png",
   foxRun2: "assets/fox/fox/fox_run_02.png",
   foxRun3: "assets/fox/fox/fox_run_03.png",
@@ -663,10 +681,38 @@ class Obstacle {
     this.x = x;
     this.y = groundY - this.h + (this.type.sink || 0);
     this.passed = false; // hook for later phases (chasing behaviour, etc.)
+    this.hideLevel = 0;  // 0 normal, 1 crouching, 2 fully tucked
+    this.hideHold = 0;   // keeps the pose a moment after the fox passes
   }
 
-  update(dt, speed) {
+  update(dt, speed, fox, images) {
     this.x -= speed * dt;
+    if (this.type.hide && fox) this.updateHide(dt, fox, images);
+  }
+
+  // Animals cower as the fox bears down and tuck fully while he leaps
+  // over them. Cosmetic only: this.w/this.h and the hitbox never change.
+  updateHide(dt, fox, images) {
+    const fb = fox.getHitbox();
+    const foxFront = fb.x + fb.w;
+    const myCenter = this.x + this.w / 2;
+    const gap = this.x - foxFront;
+
+    let want = 0;
+    if (gap < OBSTACLE_HIDE.noticeDistance && myCenter > fb.x) want = 1;
+    if (!fox.onGround && Math.abs(myCenter - (fb.x + fb.w / 2)) < OBSTACLE_HIDE.overhead) {
+      want = 2;
+    }
+    if (want > this.hideLevel) this.hideLevel = want;
+    if (want > 0) {
+      this.hideHold = OBSTACLE_HIDE.hold;
+    } else if (this.hideLevel > 0) {
+      this.hideHold -= dt;
+      if (this.hideHold <= 0) this.hideLevel = 0;
+    }
+    this.hideImage = this.hideLevel > 0
+      ? images[this.type.hide[this.hideLevel - 1].key]
+      : null;
   }
 
   isOffscreen() {
@@ -678,19 +724,30 @@ class Obstacle {
   }
 
   draw(ctx) {
-    const t = this.type.trim;
+    let img = this.type.image;
+    let t = this.type.trim;
+    // Hiding animals swap pose: drawn a touch smaller (they shrink down),
+    // bottom-anchored and centred on the same spot, so only the artwork
+    // changes — never the collision box.
+    let w = this.w;
+    let h = this.h;
+    if (this.hideLevel > 0 && this.hideImage) {
+      const pose = this.type.hide[this.hideLevel - 1];
+      img = this.hideImage;
+      t = pose.trim;
+      h = this.h * pose.hScale;
+      w = h * (t.sw / t.sh);
+    }
+    const dx = this.x + (this.w - w) / 2;
+    const dy = this.y + this.h - h;
     if (this.type.flip) {
       ctx.save();
-      ctx.translate(this.x + this.w, this.y);
+      ctx.translate(dx + w, dy);
       ctx.scale(-1, 1);
-      ctx.drawImage(this.type.image, t.sx, t.sy, t.sw, t.sh, 0, 0, this.w, this.h);
+      ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, 0, 0, w, h);
       ctx.restore();
     } else {
-      ctx.drawImage(
-        this.type.image,
-        t.sx, t.sy, t.sw, t.sh,
-        this.x, this.y, this.w, this.h
-      );
+      ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, dx, dy, w, h);
     }
   }
 }
@@ -1501,7 +1558,7 @@ class Game {
       }
     }
 
-    for (const ob of this.obstacles) ob.update(dt, this.speed);
+    for (const ob of this.obstacles) ob.update(dt, this.speed, this.fox, this.images);
     this.obstacles = this.obstacles.filter((ob) => !ob.isOffscreen());
     for (const ac of this.acorns) ac.update(dt, this.speed);
     this.acorns = this.acorns.filter((ac) => !ac.isOffscreen() && !ac.collected);
