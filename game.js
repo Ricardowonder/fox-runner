@@ -219,7 +219,7 @@ const ACORN = {
   // jump the player must make anyway collects them — building ammo before
   // the dog arrives. Past it, placement goes random and catching becomes
   // a choice.
-  guidedUntil: 2000,
+  guidedUntil: 1000,
   guidedHeight: 62,      // acorn center this far above the obstacle's top
   guidedMaxUp: 118,      // ...but never higher than the jump arc reaches
 };
@@ -267,6 +267,18 @@ const DOG = {
   },
   sleepHitbox: { left: 0.08, right: 0.08, top: 0.18, bottom: 0.04 },
   runHitbox: { left: 0.12, right: 0.15, top: 0.20, bottom: 0.04 },
+  // Seconds of obstacle-free travel bought when the sleeping dog spawns:
+  // covers approaching him, the wake-up, and the fox's surge to mid-screen,
+  // so nothing else demands a jump until the chase is properly underway.
+  spawnGraceSeconds: 4.2,
+  // Pack size by score: one dog at a time early, two from 2000, three
+  // from 4000 — if you can't clear them with acorns, they accumulate.
+  packSizes: [
+    { score: 0, max: 1 },
+    { score: 2000, max: 2 },
+    { score: 4000, max: 3 },
+  ],
+  packStagger: 65, // px: each extra pack member hangs this much further back
 };
 
 // Thrown acorns (ArrowLeft). Screen-relative backward flight with a
@@ -652,6 +664,7 @@ class Dog {
     this.chaseTime = 0;
     this.animTime = 0;
     this.done = false;
+    this.packOffset = 0; // set by DogDirector for extra pack members
     const p = DOG.poses.sleep;
     this.h = p.h;
     this.w = p.h * (p.trim.sw / p.trim.sh);
@@ -742,7 +755,8 @@ class Dog {
       case "chasing": {
         this.chaseTime += dt;
         this.animTime += dt;
-        const gap = fox.x - (this.x + this.w);
+        // packOffset staggers pack members so they don't overlap.
+        const gap = fox.x - (this.x + this.w) - this.packOffset;
         const band = Math.min(Math.max(gap / DOG.chase.rubberBandDist, DOG.chase.rubberBandMin), 1);
         this.x += (DOG.chase.base + speed * DOG.chase.perSpeed) * band * dt;
         if (this.chaseTime > DOG.chase.stamina) this.state = "tiring";
@@ -819,7 +833,11 @@ class DogDirector {
       return;
     }
     this.dog = new Dog(GAME_W + 40, this.groundY, images);
-    spawner.distanceUntilNext = Math.max(spawner.distanceUntilNext, 340);
+    // Breathing room for the whole encounter opening — no fresh obstacles
+    // until the chase is underway (see DOG.spawnGraceSeconds).
+    spawner.distanceUntilNext = Math.max(
+      spawner.distanceUntilNext, speed * DOG.spawnGraceSeconds
+    );
     this.distanceUntilNext = DOG.gapMin + Math.random() * (DOG.gapMax - DOG.gapMin);
   }
 }
@@ -1458,9 +1476,10 @@ class Game {
     const pad = (n) => String(n).padStart(5, "0");
     const scoreText = `SCORE ${pad(this.score)}`;
     const hiText = `HI ${pad(this.hiScore)}`;
-    ctx.fillText(scoreText, GAME_W - 20, 16);
+    // Right margin leaves room for the fullscreen button overlay.
+    ctx.fillText(scoreText, GAME_W - 70, 16);
     ctx.globalAlpha = 0.65;
-    ctx.fillText(hiText, GAME_W - 20 - ctx.measureText(scoreText).width - 24, 16);
+    ctx.fillText(hiText, GAME_W - 70 - ctx.measureText(scoreText).width - 24, 16);
 
     // Acorn counter, top-left (opposite the score).
     ctx.globalAlpha = 1;

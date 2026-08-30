@@ -19,14 +19,55 @@
     <canvas id="game" aria-label="Fox Runner game"></canvas>
     <button id="btn-jump" class="touch-btn touch-btn-left" tabindex="-1" aria-label="Jump">JUMP</button>
     <button id="btn-throw" class="touch-btn touch-btn-right" tabindex="-1" aria-label="Throw acorn">THROW</button>
+    <button id="btn-fullscreen" class="fs-btn" tabindex="-1" aria-label="Full screen">⛶</button>
   </main>
   <div class="rotate-hint">Rotate your phone to play</div>
-  <script src="game.js?v=21"></script>
+  <script src="game.js?v=22"></script>
   <script>
     // Offline support + installability (needs HTTPS or localhost).
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").catch(() => {});
     }
+
+    // Fullscreen toggle. Hidden when the API is unavailable or the game is
+    // already running as an installed home-screen app (no browser chrome).
+    (function () {
+      const btn = document.getElementById("btn-fullscreen");
+      const wrap = document.querySelector(".game-wrap");
+      const request = wrap.requestFullscreen || wrap.webkitRequestFullscreen;
+      const installed =
+        window.matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches ||
+        window.navigator.standalone === true;
+      if (!request || installed) {
+        btn.style.display = "none";
+        return;
+      }
+
+      const fsElement = () =>
+        document.fullscreenElement || document.webkitFullscreenElement;
+
+      btn.addEventListener("click", () => {
+        btn.blur(); // keep Space from re-triggering the button while playing
+        if (fsElement()) {
+          (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        } else {
+          const p = request.call(wrap);
+          if (p && p.catch) p.catch(() => {});
+          // Best-effort landscape lock (Android; iOS ignores it).
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock("landscape").catch(() => {});
+          }
+        }
+      });
+
+      const onChange = () => {
+        const fs = !!fsElement();
+        btn.textContent = fs ? "✕" : "⛶";
+        btn.setAttribute("aria-label", fs ? "Exit full screen" : "Full screen");
+      };
+      document.addEventListener("fullscreenchange", onChange);
+      document.addEventListener("webkitfullscreenchange", onChange);
+    })();
   </script>
 </body>
 </html>
