@@ -87,6 +87,7 @@ function makeTheme(dir, label, opts) {
     label,
     hero: HERO,
     cast: opts.cast, // which creature plays each role, for reference
+    dog: opts.dog,   // per-level dog pacing, read via dogSetting()
     obstacles: {
       hedgehog: q("obstacles", "hedgehog", "hedgehog.png"),
       rabbit: q("obstacles", "rabbit", "rabbit.png"),
@@ -139,6 +140,7 @@ function makeTheme(dir, label, opts) {
 
 const THEMES = {
   field: makeTheme("field", "Field", {
+    dog: { gapScale: 1.35 }, // a first level: dogs stay an occasional event
     cast: { hedgehog: "hedgehog", rabbit: "rabbit", chaser: "hunting dog",
             flyer: "bluebird", collectible: "acorn" },
     sprites: {
@@ -163,6 +165,9 @@ const THEMES = {
    */
   woodland: makeTheme("woodland", "Woodland", {
     fallback: "field",
+    // Dogs from the first stage here, and closer together: by level two
+    // the player knows what a dog is and how to deal with one.
+    dog: { availableFrom: 300, gapScale: 0.9 },
     cast: { hedgehog: "ferret", rabbit: "badger", rock: "otter",
             log: "mossy log", stump: "hollow log",
             chaser: "hunting dog", flyer: "owl", collectible: "acorn" },
@@ -184,7 +189,7 @@ const THEMES = {
       // now spawn about as often as one field animal did, leaving room
       // for the logs and the boulder to carry the variety.
       hedgehog: {
-        h: 32, weight: 1.7, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
+        h: 32, weight: 1.7, sink: 7, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
           { trim: { sx: 31, sy: 101, sw: 450, sh: 214 } },
@@ -200,7 +205,7 @@ const THEMES = {
         // Held back from the opening: a reared badger is the toughest
         // single obstacle in either level, so the ferret carries the
         // early game the way the hedgehog does in the field.
-        h: 36, rearHeight: 66, availableFrom: 500,
+        h: 36, rearHeight: 66, availableFrom: 500, sink: 6,
         // Rears later than the default 520px, so it reads as reacting to
         // the fox rather than standing up long before he arrives. Still
         // clears the rise (0.28s) well before the latest viable jump.
@@ -218,7 +223,7 @@ const THEMES = {
       // The otter takes the rock's slot, and cowers like the ferret.
       rock: {
         // Seen as often as the ferret now, and from the same early point.
-        h: 31, weight: 1.7, availableFrom: 250, animal: true, flip: true, sink: 3,
+        h: 31, weight: 1.7, availableFrom: 250, animal: true, flip: true, sink: 7,
         trim: { sx: 31, sy: 135, sw: 449, sh: 180 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
@@ -226,14 +231,15 @@ const THEMES = {
           { trim: { sx: 31, sy: 202, sw: 449, sh: 113 }, wScale: 0.98 },
         ],
       },
-      log: { h: 32, weight: 3.4, availableFrom: 250,
+      // Chunkier than the field's timber: level two should feel weightier.
+      log: { h: 37, weight: 3.4, availableFrom: 250, sink: 9,
              trim: { sx: 15, sy: 34, sw: 481, sh: 204 },
              hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 } },
-      stump: { h: 44, weight: 2.6, availableFrom: 900,
+      stump: { h: 49, weight: 2.6, availableFrom: 900, sink: 10,
                trim: { sx: 52, sy: 0, sw: 408, sh: 240 },
                hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 } },
       // The field's mossy boulder, earning its place in the woodland mix.
-      boulder: { h: 38, weight: 2.6, availableFrom: 400 },
+      boulder: { h: 44, weight: 2.6, availableFrom: 400, sink: 8 },
       // The owl is a bigger bird than the bluebird.
       flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 } },
     },
@@ -554,7 +560,7 @@ const ACORN = {
  * its canvas at a different real-world scale.
  */
 const DOG = {
-  availableFrom: 700,    // score at which dogs start appearing
+  availableFrom: 700,    // score at which dogs start appearing (per theme via THEME.dog)
   gapMin: 2600,          // px of travel between dog encounters
   gapMax: 4800,
   frames: THEME.chaser, // sleep / waking / headShake / alert / crash / bite
@@ -604,11 +610,21 @@ const DOG = {
   // Encounters close up as the level goes on: gaps shrink to this
   // fraction of their base by the time the burrow is in sight.
   lateFrequency: 0.35,
+  gapScale: 1, // per-theme multiplier on every gap
   chaseTuning: [
     { score: 0, rubberBandMin: 0.55, stamina: 9 },
     { score: 2000, rubberBandMin: 0.26, stamina: 16 },
   ],
 };
+
+/* Dog pacing can differ per level: the woodland meets them sooner and
+ * more often than the field, which is a player's first encounter.
+ */
+function dogSetting(key) {
+  const over = THEME.dog;
+  if (over && over[key] !== undefined) return over[key];
+  return DOG[key];
+}
 
 function dogChaseTuning(score) {
   let t = DOG.chaseTuning[0];
@@ -1393,7 +1409,7 @@ class DogDirector {
 
   reset() {
     this.dogs = [];
-    this.distanceUntilNext = DOG.gapMin;
+    this.distanceUntilNext = dogSetting("gapMin") * dogSetting("gapScale");
   }
 
   // Convenience for collision/draw code.
@@ -1419,7 +1435,7 @@ class DogDirector {
       .sort((a, b) => b.x - a.x);
     chasers.forEach((d, i) => (d.packOffset = i * DOG.packStagger));
 
-    if (score < DOG.availableFrom) return;
+    if (score < dogSetting("availableFrom")) return;
     if (this.dogs.length >= this.maxConcurrent(score)) return;
     // Only one dog may be in its sleeping/waking phase at a time.
     if (this.dogs.some((d) => d.state !== "chasing" && d.state !== "tiring" && d.state !== "stunned")) {
@@ -1428,11 +1444,16 @@ class DogDirector {
     this.distanceUntilNext -= speed * dt;
     if (this.distanceUntilNext > 0) return;
 
-    // Need clear ground: no obstacle within jumping distance either side
-    // of the sleeping dog's spawn point. (Tighter windows than this never
-    // open at high difficulty — patterns are too dense.)
+    /* Need clear ground: no obstacle within jumping distance either side
+     * of the sleeping dog's spawn point. Rather than waiting for a gap to
+     * happen along - which in a dense level means the dog barely ever
+     * arrives - hold the obstacle spawner off and take the room. Without
+     * this the woodland, whose obstacles are bigger and closer together,
+     * saw FEWER dogs than the field despite asking for more.
+     */
     if (obstacles.some((o) => o.x + o.w > GAME_W - 260) || spawner.distanceUntilNext < 220) {
-      this.distanceUntilNext = 140; // try again shortly
+      spawner.distanceUntilNext = Math.max(spawner.distanceUntilNext, 300);
+      this.distanceUntilNext = 40; // check again as soon as the ground clears
       return;
     }
     // Breathing room for the encounter opening — full grace for a fresh
@@ -1445,11 +1466,13 @@ class DogDirector {
       speed * (joining ? DOG.packJoinGraceSeconds : DOG.spawnGraceSeconds)
     );
     // Pack territory spawns dogs closer together.
-    const gapMin = this.maxConcurrent(score) > 1 ? DOG.packGapMin : DOG.gapMin;
-    const gapMax = this.maxConcurrent(score) > 1 ? DOG.packGapMax : DOG.gapMax;
+    const pack = this.maxConcurrent(score) > 1;
+    const gapMin = pack ? dogSetting("packGapMin") : dogSetting("gapMin");
+    const gapMax = pack ? dogSetting("packGapMax") : dogSetting("gapMax");
     const progress = Math.min(1, score / levelGoal());
-    const closeUp = 1 - (1 - DOG.lateFrequency) * progress;
-    this.distanceUntilNext = (gapMin + Math.random() * (gapMax - gapMin)) * closeUp;
+    const closeUp = 1 - (1 - dogSetting("lateFrequency")) * progress;
+    this.distanceUntilNext =
+      (gapMin + Math.random() * (gapMax - gapMin)) * closeUp * dogSetting("gapScale");
   }
 }
 
