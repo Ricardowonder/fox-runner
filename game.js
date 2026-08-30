@@ -142,12 +142,12 @@ const THEMES = {
       // Cowering poses shown as the fox bears down and leaps over. Purely
       // cosmetic — see Obstacle.draw, the collision box never changes.
       hedgehog: { poses: [
-        { trim: { sx: 60, sy: 58, sw: 417, sh: 237 }, hScale: 0.97 },
-        { trim: { sx: 66, sy: 11, sw: 403, sh: 301 }, hScale: 0.92 },
+        { trim: { sx: 60, sy: 58, sw: 417, sh: 237 } },
+        { trim: { sx: 66, sy: 11, sw: 403, sh: 301 }, wScale: 0.96 },
       ] },
       rabbit: { poses: [
-        { trim: { sx: 30, sy: 58, sw: 477, sh: 231 }, hScale: 0.94 },
-        { trim: { sx: 47, sy: 88, sw: 460, sh: 199 }, hScale: 0.86 },
+        { trim: { sx: 30, sy: 58, sw: 477, sh: 231 } },
+        { trim: { sx: 47, sy: 88, sw: 460, sh: 199 }, wScale: 0.98 },
       ] },
     },
   }),
@@ -181,11 +181,11 @@ const THEMES = {
       // now spawn about as often as one field animal did, leaving room
       // for the logs and the boulder to carry the variety.
       hedgehog: {
-        h: 28, weight: 1.7, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
+        h: 32, weight: 1.7, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
-          { trim: { sx: 31, sy: 101, sw: 450, sh: 214 }, hScale: 0.95 },
-          { trim: { sx: 31, sy: 196, sw: 450, sh: 119 }, hScale: 0.82 },
+          { trim: { sx: 31, sy: 101, sw: 450, sh: 214 } },
+          { trim: { sx: 31, sy: 196, sw: 450, sh: 119 }, wScale: 0.98 },
         ],
       },
       /* The badger rears onto its hind legs to try to catch the fox,
@@ -214,12 +214,13 @@ const THEMES = {
       },
       // The otter takes the rock's slot, and cowers like the ferret.
       rock: {
-        h: 26, weight: 1.4, animal: true, flip: true, sink: 3,
+        // Seen as often as the ferret now, and from the same early point.
+        h: 31, weight: 1.7, availableFrom: 250, animal: true, flip: true, sink: 3,
         trim: { sx: 31, sy: 135, sw: 449, sh: 180 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
-          { trim: { sx: 31, sy: 166, sw: 449, sh: 149 }, hScale: 0.94 },
-          { trim: { sx: 31, sy: 202, sw: 449, sh: 113 }, hScale: 0.82 },
+          { trim: { sx: 31, sy: 166, sw: 449, sh: 149 } },
+          { trim: { sx: 31, sy: 202, sw: 449, sh: 113 }, wScale: 0.98 },
         ],
       },
       log: { h: 32, weight: 3.4, availableFrom: 250,
@@ -583,9 +584,11 @@ const DOG = {
   spawnGraceSeconds: 4.2,
   // Pack size by score: one dog at a time early, two from 2000, three
   // from 4000 — if you can't clear them with acorns, they accumulate.
+  // Two at once through the closing third, so the run home is the
+  // busiest stretch rather than more of the same.
   packSizes: [
     { score: 0, max: 1 },
-    { score: 2500, max: 2 },
+    { score: 2000, max: 2 },
   ],
   packStagger: 65, // px: each extra pack member hangs this much further back
   // In pack territory dogs spawn closer together, and each chaser burns
@@ -594,6 +597,9 @@ const DOG = {
   packGapMin: 1500,
   packGapMax: 3000,
   packJoinGraceSeconds: 1.5, // obstacle grace for dogs joining an active chase
+  // Encounters close up as the level goes on: gaps shrink to this
+  // fraction of their base by the time the burrow is in sight.
+  lateFrequency: 0.35,
   chaseTuning: [
     { score: 0, rubberBandMin: 0.55, stamina: 9 },
     { score: 2000, rubberBandMin: 0.26, stamina: 16 },
@@ -755,7 +761,7 @@ function bindTheme() {
     type.hide = paths.slice(0, poses.length).map((src, i) => {
       const key = `react_${role}_${i}`;
       IMAGE_SOURCES[key] = src;
-      return { key, trim: poses[i].trim, hScale: poses[i].hScale || 1 };
+      return { key, trim: poses[i].trim, wScale: poses[i].wScale || 1 };
     });
   }
   DOG.frames = THEME.chaser;
@@ -1184,10 +1190,19 @@ class Obstacle {
       const pose = this.type.hide[this.hideLevel - 1];
       img = this.hideImage;
       t = pose.trim;
-      // Rearing types already grew this.h, so the pose is drawn at full
-      // height; cowering ones shrink into the pose instead.
-      h = this.type.rearHeight ? this.h : this.h * pose.hScale;
-      w = h * (t.sw / t.sh);
+      if (this.type.rearHeight) {
+        // Rearing types already grew this.h; draw the pose at full height.
+        h = this.h;
+        w = h * (t.sw / t.sh);
+      } else {
+        /* Cowering keeps the animal's FOOTPRINT and drops its height. A
+         * flattened pose is a much wider shape, so scaling it by height
+         * (as this used to) made the sprite balloon sideways - the animal
+         * appeared to grow as it ducked.
+         */
+        w = this.w * (pose.wScale || 1);
+        h = w / (t.sw / t.sh);
+      }
     }
     const dx = this.x + (this.w - w) / 2;
     const dy = this.y + this.h - h;
@@ -1427,7 +1442,9 @@ class DogDirector {
     // Pack territory spawns dogs closer together.
     const gapMin = this.maxConcurrent(score) > 1 ? DOG.packGapMin : DOG.gapMin;
     const gapMax = this.maxConcurrent(score) > 1 ? DOG.packGapMax : DOG.gapMax;
-    this.distanceUntilNext = gapMin + Math.random() * (gapMax - gapMin);
+    const progress = Math.min(1, score / levelGoal());
+    const closeUp = 1 - (1 - DOG.lateFrequency) * progress;
+    this.distanceUntilNext = (gapMin + Math.random() * (gapMax - gapMin)) * closeUp;
   }
 }
 
@@ -1964,11 +1981,7 @@ class Game {
     // Resume from the furthest stage banked this session.
     this.score = this.checkpoint.score;
     this.distance = this.score * SCORE_DISTANCE_DIVISOR;
-    // Restarting mid-level with no ammunition against active dogs would be
-    // a trap, so a banked stage carries a small stash.
-    this.acornCount = this.checkpoint.stage > 0
-      ? Math.max(this.checkpoint.acorns, 2)
-      : 0;
+    this.acornCount = 0; // acorns are lost on death, wherever you restart
     this.checkpointFlash = 0;
     this.speed = DIFFICULTY.bands[0].speed;
     this.fox.reset();
