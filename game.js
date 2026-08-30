@@ -51,12 +51,24 @@ const HERO = {
 };
 
 // Builds a theme's paths from its folder; every theme has this same shape.
-function makeTheme(dir, label, cast) {
-  const p = (sub, file) => `assets/themes/${dir}/${sub}/${file}`;
+/* Builds a theme's paths from its folder; every theme has this same shape.
+ * `fallback` names a theme to borrow from while art is still being drawn:
+ * any file missing from this theme's folder quietly loads the other
+ * theme's version instead (see loadImage). That lets a new setting come
+ * together one asset at a time, and the level stays playable throughout.
+ */
+function makeTheme(dir, label, opts) {
+  opts = opts || {};
+  const fb = opts.fallback ? `assets/themes/${opts.fallback}` : null;
+  // Each entry is [preferred, fallback] so the loader can try in order.
+  const p = (sub, file) => {
+    const own = `assets/themes/${dir}/${sub}/${file}`;
+    return fb ? [own, `${fb}/${sub}/${file}`] : own;
+  };
   return {
     label,
     hero: HERO,
-    cast, // which creature plays each role, for reference
+    cast: opts.cast, // which creature plays each role, for reference
     obstacles: {
       hedgehog: p("obstacles", "hedgehog.png"),
       rabbit: p("obstacles", "rabbit.png"),
@@ -88,25 +100,50 @@ function makeTheme(dir, label, cast) {
     },
     ground: { grass: p("ground", "grass.png"), dirt: p("ground", "dirt.png") },
     pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
+    // Optional: drop foxhole.png into the theme's pages/ folder and the
+    // drawn placeholder burrow is replaced by the artwork.
+    foxhole: p("pages", "foxhole.png"),
+    // Per-theme sprite tweaks, merged over the shared gameplay config in
+    // OBSTACLE_TYPES / BIRD. Only geometry belongs here - never spacing or
+    // speed, so the difficulty tuning stays identical across levels.
+    sprites: opts.sprites || {},
   };
 }
 
 const THEMES = {
   field: makeTheme("field", "Field", {
-    obstacles: "hedgehog, rabbit, rock, log, stump",
-    chaser: "hunting dog",
-    flyer: "bluebird",
-    collectible: "acorn",
+    cast: { hedgehog: "hedgehog", rabbit: "rabbit", chaser: "hunting dog",
+            flyer: "bluebird", collectible: "acorn" },
   }),
-  // woodland: makeTheme("woodland", "Woodland", {
-  //   obstacles: "... badger in the rabbit's role ...",
-  //   flyer: "owl", ...
-  // }),
+  /* Level 2. The roles keep their level-1 names in code - the art and the
+   * `cast` note say who is actually playing them - so every bit of
+   * difficulty tuning carries over untouched. Anything not yet drawn
+   * falls back to the field art, so this is playable while the woodland
+   * assets arrive.
+   */
+  woodland: makeTheme("woodland", "Woodland", {
+    fallback: "field",
+    cast: { hedgehog: "ferret", rabbit: "badger", chaser: "hunting dog",
+            flyer: "owl", collectible: "acorn" },
+    sprites: {
+      // The badger rears onto its hind legs as the fox approaches instead
+      // of cowering: same footprint, but it becomes a tall obstacle.
+      rabbit: { h: 38, rearHeight: 58 },
+      // The owl is a bigger bird than the bluebird.
+      flyer: { w: 62, h: 43 },
+    },
+  }),
 };
 
-// Level 1 is the field. Add later levels here as their themes appear.
-const LEVELS = [{ theme: "field", goal: 3000 }];
-const THEME = THEMES[LEVELS[0].theme];
+/* The levels, in order. Each finishes at its goal score, then the fox
+ * dives into his hole and the next one begins.
+ */
+const LEVELS = [
+  { theme: "field", goal: 3000 },
+  { theme: "woodland", goal: 3000 },
+];
+let levelIndex = 0;
+let THEME = THEMES[LEVELS[levelIndex].theme];
 
 // ---------------------------------------------------------------------------
 // Config
@@ -175,7 +212,17 @@ function jumpArc(speed) {
 }
 
 const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
-const LEVEL_GOAL = LEVELS[0].goal; // reaching this finishes level 1
+function levelGoal() { return LEVELS[levelIndex].goal; }
+
+/* Finishing a level: the spawners stop, the fox's burrow scrolls in, and
+ * he dives home. Then the success page, and on to the next setting.
+ */
+const FINISH = {
+  holeLeadIn: 1.6,  // seconds of clear ground before the burrow appears
+  diveTime: 0.55,   // seconds to disappear down it
+  holeW: 96,
+  holeH: 34,
+};
 
 // Fox drawn CONTENT size (the visible artwork, not the padded PNG canvas).
 const FOX_H = 62;
@@ -545,46 +592,90 @@ function maxSingleJumpSpan(speed, obstacleH, foxHitboxW) {
 // Asset loading & processing
 // ---------------------------------------------------------------------------
 
-const IMAGE_SOURCES = {
-  sky: THEME.scenery.sky,
-  hillsFar: THEME.scenery.hillsFar,
-  tree1: THEME.scenery.trees[0],
-  tree2: THEME.scenery.trees[1],
-  tree3: THEME.scenery.trees[2],
-  bushStrip: THEME.scenery.bushes[0],
-  bush1: THEME.scenery.bushes[1],
-  bush2: THEME.scenery.bushes[2],
-  bush3: THEME.scenery.bushes[3],
-  groundDirt: THEME.ground.dirt,
-  groundGrass: THEME.ground.grass,
-  acorn: THEME.collectible.item,
-  acornIcon: THEME.collectible.icon,
-  hedgehogHide1: THEME.reactions.hedgehog[0],
-  hedgehogHide2: THEME.reactions.hedgehog[1],
-  rabbitHide1: THEME.reactions.rabbit[0],
-  rabbitHide2: THEME.reactions.rabbit[1],
-  foxJump: THEME.hero.jump,
-  foxLand: THEME.hero.land,
-  foxHit: THEME.hero.hit,
-  foxThrow1: THEME.hero.throw[0],
-  foxThrow2: THEME.hero.throw[1],
-  foxThrow3: THEME.hero.throw[2],
-  foxThrow4: THEME.hero.throw[3],
-  introBg: THEME.pages.intro,
-  gameOverBg: THEME.pages.gameOver,
-};
-THEME.hero.run.forEach((src, i) => { IMAGE_SOURCES["foxRun" + (i + 1)] = src; });
+let IMAGE_SOURCES = {};
 
+/* Re-points every theme-derived binding at the current THEME. Must run
+ * before each load, because advancing a level swaps the theme and these
+ * were otherwise frozen at the values the first level happened to have.
+ */
+function bindTheme() {
+  applyThemeSprites();
+  IMAGE_SOURCES = {
+    sky: THEME.scenery.sky,
+    hillsFar: THEME.scenery.hillsFar,
+    tree1: THEME.scenery.trees[0],
+    tree2: THEME.scenery.trees[1],
+    tree3: THEME.scenery.trees[2],
+    bushStrip: THEME.scenery.bushes[0],
+    bush1: THEME.scenery.bushes[1],
+    bush2: THEME.scenery.bushes[2],
+    bush3: THEME.scenery.bushes[3],
+    groundDirt: THEME.ground.dirt,
+    groundGrass: THEME.ground.grass,
+    acorn: THEME.collectible.item,
+    acornIcon: THEME.collectible.icon,
+    hedgehogHide1: THEME.reactions.hedgehog[0],
+    hedgehogHide2: THEME.reactions.hedgehog[1],
+    rabbitHide1: THEME.reactions.rabbit[0],
+    rabbitHide2: THEME.reactions.rabbit[1],
+    foxJump: THEME.hero.jump,
+    foxLand: THEME.hero.land,
+    foxHit: THEME.hero.hit,
+    foxThrow1: THEME.hero.throw[0],
+    foxThrow2: THEME.hero.throw[1],
+    foxThrow3: THEME.hero.throw[2],
+    foxThrow4: THEME.hero.throw[3],
+    introBg: THEME.pages.intro,
+    gameOverBg: THEME.pages.gameOver,
+  };
+  THEME.hero.run.forEach((src, i) => { IMAGE_SOURCES["foxRun" + (i + 1)] = src; });
+  DOG.frames = THEME.chaser;
+  ACORN.src = THEME.collectible.item;
+  for (const [name, type] of Object.entries(OBSTACLE_TYPES)) {
+    type.src = THEME.obstacles[name];
+  }
+}
+
+/* Loads an image. `src` may be a single path, or [preferred, fallback]:
+ * a theme still being drawn borrows the other theme's art for anything
+ * its own folder does not have yet, so a missing file is not an error.
+ */
 function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to load " + src));
-    img.src = src;
-  });
+  const chain = Array.isArray(src) ? src.slice() : [src];
+  const tryNext = () => {
+    const path = chain.shift();
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        if (chain.length) resolve(tryNext());
+        else reject(new Error("Failed to load " + path));
+      };
+      img.src = path;
+    });
+  };
+  return tryNext();
+}
+
+/* Applies the active theme's sprite tweaks over the shared gameplay
+ * config. Geometry only - the owl is a bigger bird than the bluebird, the
+ * badger rears where the rabbit cowers - so spacing, speed and every other
+ * difficulty number stays identical from level to level.
+ */
+function applyThemeSprites() {
+  for (const [role, over] of Object.entries(THEME.sprites || {})) {
+    const target = role === "flyer" ? BIRD : OBSTACLE_TYPES[role];
+    if (!target) continue;
+    Object.assign(target, over);
+  }
+  // Anything that rears is too tall to be half of a one-jump close pair.
+  for (const t of Object.values(OBSTACLE_TYPES)) {
+    if (t.rearHeight) t.pairable = false;
+  }
 }
 
 function loadAssets() {
+  bindTheme();
   const images = {};
   const jobs = [];
   for (const [key, src] of Object.entries(IMAGE_SOURCES)) {
@@ -592,7 +683,7 @@ function loadAssets() {
   }
   images.dog = {};
   for (const [key, src] of Object.entries(DOG.frames)) {
-    if (typeof src !== "string") continue; // skip the run-cycle array
+    if (key === "run") continue; // the run cycle is loaded as a list below
     jobs.push(loadImage(src).then((img) => (images.dog[key] = img)));
   }
   images.birdFly = [];
@@ -613,6 +704,8 @@ function loadAssets() {
       })
     );
   }
+  // Optional art: absent files simply leave the key undefined.
+  jobs.push(loadImage(THEME.foxhole).then((img) => { images.foxhole = img; }, () => {}));
   return Promise.all(jobs).then(() => images);
 }
 
@@ -838,6 +931,23 @@ class Fox {
   }
 }
 
+/* Some animals rear onto their hind legs instead of cowering: the badger
+ * makes itself TALLER as the fox bears down. Unlike hiding this changes
+ * the hitbox, so it has to be honest - it rears from far enough out that
+ * it is already at full height before the player commits to a jump (jumps
+ * commit inside ~230px even at top speed), and the spawner plans every
+ * sequence around the reared height.
+ */
+const OBSTACLE_REAR = {
+  noticeDistance: 520, // px of gap at which it starts standing up
+  riseTime: 0.28,      // seconds to reach full height
+};
+
+// The height the spawner must plan for: reared, if this one rears.
+function plannedHeight(type) {
+  return type.rearHeight || type.h;
+}
+
 class Obstacle {
   constructor(typeName, x, groundY) {
     this.typeName = typeName;
@@ -849,11 +959,32 @@ class Obstacle {
     this.passed = false; // hook for later phases (chasing behaviour, etc.)
     this.hideLevel = 0;  // 0 normal, 1 crouching, 2 fully tucked
     this.hideHold = 0;   // keeps the pose a moment after the fox passes
+    this.rear = 0;       // 0..1 how far up on its hind legs (rearing types)
+    this.baseH = this.h;
   }
 
   update(dt, speed, fox, images) {
     this.x -= speed * dt;
-    if (this.type.hide && fox) this.updateHide(dt, fox, images);
+    if (this.type.rearHeight && fox) this.updateRear(dt, fox, images);
+    else if (this.type.hide && fox) this.updateHide(dt, fox, images);
+  }
+
+  // Stand up as the fox approaches, growing the drawn size AND the hitbox.
+  updateRear(dt, fox, images) {
+    const fb = fox.getHitbox();
+    const gap = this.x - (fb.x + fb.w);
+    if (gap < OBSTACLE_REAR.noticeDistance) {
+      this.rear = Math.min(1, this.rear + dt / OBSTACLE_REAR.riseTime);
+    }
+    const groundLine = this.y + this.h; // keep the feet planted
+    this.h = this.baseH + (this.type.rearHeight - this.baseH) * this.rear;
+    this.y = groundLine - this.h;
+    // Reuse the reaction poses as the standing art, if the theme has them.
+    if (this.type.hide) {
+      const idx = this.rear > 0.6 ? 1 : this.rear > 0.05 ? 0 : -1;
+      this.hideLevel = idx + 1;
+      this.hideImage = idx >= 0 ? images[this.type.hide[idx].key] : null;
+    }
   }
 
   // Animals cower as the fox bears down and tuck fully while he leaps
@@ -901,7 +1032,9 @@ class Obstacle {
       const pose = this.type.hide[this.hideLevel - 1];
       img = this.hideImage;
       t = pose.trim;
-      h = this.h * pose.hScale;
+      // Rearing types already grew this.h, so the pose is drawn at full
+      // height; cowering ones shrink into the pose instead.
+      h = this.type.rearHeight ? this.h : this.h * pose.hScale;
       w = h * (t.sw / t.sh);
     }
     const dx = this.x + (this.w - w) / 2;
@@ -1429,7 +1562,7 @@ class SpawnDirector {
       if (aName && bName) {
         const a = OBSTACLE_TYPES[aName];
         const b = OBSTACLE_TYPES[bName];
-        const tallest = Math.max(a.h, b.h);
+        const tallest = Math.max(plannedHeight(a), plannedHeight(b));
         const maxSpan = maxSingleJumpSpan(speed, tallest, this.foxHitboxW);
         const maxGap = maxSpan - a.w - b.w;
         if (maxGap >= CLOSE_PAIR_MIN_GAP) {
@@ -1599,7 +1732,8 @@ class Game {
     document.addEventListener("keydown", (e) => {
       if (e.code === "Enter" || e.code === "NumpadEnter") {
         e.preventDefault();
-        if (this.state !== "running") this.startRun();
+        if (this.state === "levelcomplete") this.advanceLevel();
+        else if (this.state !== "running" && this.state !== "loading") this.startRun();
       } else if (e.code === "Space") {
         e.preventDefault();
         if (this.state === "running" && !e.repeat) this.fox.jump(this.speed);
@@ -1656,11 +1790,12 @@ class Game {
   tryStartFromButton() {
     if (this.state === "ready") this.startRun();
     else if (this.state === "gameover" && performance.now() - this.gameOverAt > 600) this.startRun();
-    else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.startRun();
+    else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.advanceLevel();
   }
 
   startRun() {
     this.state = "running";
+    this.finish = null;
     this.obstacles = [];
     this.acorns = [];
     this.acornCount = 0;
@@ -1678,6 +1813,29 @@ class Game {
     this.birds = [];
   }
 
+  /* Moves to the next level: swaps the theme, loads whatever art that
+   * setting has (missing pieces fall back to the field's), and starts the
+   * run. Shows a brief loading line because a new setting means new files.
+   */
+  advanceLevel() {
+    if (levelIndex + 1 >= LEVELS.length) { this.startRun(); return; }
+    levelIndex += 1;
+    THEME = THEMES[LEVELS[levelIndex].theme];
+    this.state = "loading";
+    loadAssets()
+      .then((images) => {
+        this.images = images;
+        this.fox.images = images;
+        this.startRun();
+      })
+      .catch((err) => {
+        console.error(err);
+        levelIndex -= 1; // could not load the next setting; stay put
+        THEME = THEMES[LEVELS[levelIndex].theme];
+        this.startRun();
+      });
+  }
+
   throwAcorn() {
     if (this.acornCount <= 0 || this.throwCooldown > 0) return;
     this.acornCount--;
@@ -1685,6 +1843,43 @@ class Game {
     this.fox.startThrow();
     // The projectile leaves on the release frame, not at the key press.
     this.pendingRelease = THROW_ANIM.releaseAt;
+  }
+
+  /* Goal reached: stop sending hazards, let the fox run on, then slide his
+   * burrow in from the right for him to dive into. Reaching home should
+   * feel earned, not like the game simply stopped.
+   */
+  beginFinish() {
+    this.finish = { holeX: null, lead: FINISH.holeLeadIn, diveT: 0 };
+    this.spawner.distanceUntilNext = Infinity;
+    this.acornSpawner.distanceUntilNext = Infinity;
+    this.dogDirector.distanceUntilNext = Infinity;
+    this.birdSpawner.distanceUntilNext = Infinity;
+    for (const d of this.dogDirector.dogs) {
+      if (d.state === "chasing") d.state = "tiring"; // any pursuer gives up
+    }
+  }
+
+  updateFinish(dt) {
+    const f = this.finish;
+    if (f.holeX === null) {
+      f.lead -= dt;
+      // Wait for a clear run-in before the burrow appears.
+      if (f.lead <= 0 && !this.obstacles.length && !this.birds.length) {
+        f.holeX = GAME_W + 60;
+      }
+      return;
+    }
+    if (f.diveT === 0) {
+      f.holeX -= this.speed * dt;
+      const fb = this.fox.getHitbox();
+      if (f.holeX + FINISH.holeW / 2 <= fb.x + fb.w / 2 && this.fox.onGround) {
+        f.diveT = 0.0001; // reached home
+      }
+      return;
+    }
+    f.diveT += dt / FINISH.diveTime;
+    if (f.diveT >= 1) this.completeLevel();
   }
 
   completeLevel() {
@@ -1730,13 +1925,16 @@ class Game {
     this.distance += this.speed * dt;
     this.scroll += this.speed * dt;
     this.score = Math.floor(this.distance / SCORE_DISTANCE_DIVISOR);
-    if (this.score >= LEVEL_GOAL) {
-      this.score = LEVEL_GOAL;
-      this.completeLevel();
-      return;
+    if (this.score >= levelGoal() && !this.finish) {
+      this.score = levelGoal();
+      this.beginFinish();
     }
 
     this.fox.update(dt, this.speed);
+    if (this.finish) {
+      this.updateFinish(dt);
+      if (this.state !== "running") return;
+    }
     const obstacleCountBefore = this.obstacles.length;
     this.spawner.update(dt, this.speed, this.score, this.obstacles);
     this.acornSpawner.update(dt, this.speed, this.score, this.acorns, this.obstacles, this.images.acorn);
@@ -1899,6 +2097,33 @@ class Game {
       this.scroll, true, GROUND.grass);
   }
 
+  /* The fox's burrow. Uses the theme's art when it exists; otherwise it is
+   * drawn - an earth mound with a dark mouth - so the ending works before
+   * the artwork lands.
+   */
+  drawFoxhole(ctx) {
+    const x = this.finish.holeX;
+    const img = this.images.foxhole;
+    const w = FINISH.holeW;
+    const h = FINISH.holeH;
+    if (img) {
+      const dh = w * (img.height / img.width);
+      ctx.drawImage(img, x - w / 2, this.groundY + 6 - dh, w, dh);
+      return;
+    }
+    ctx.save();
+    ctx.translate(x, this.groundY + 2);
+    ctx.fillStyle = "#5b3a1c";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 2, h / 2 + 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#20140a";
+    ctx.beginPath();
+    ctx.ellipse(0, 1, w / 2 - 9, h / 2 - 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   drawHud() {
     const { ctx } = this;
     ctx.save();
@@ -2049,6 +2274,15 @@ class Game {
       return;
     }
 
+    if (this.state === "loading") {
+      ctx.fillStyle = "#1c2a1e";
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.font = "bold 22px 'Courier New', Courier, monospace";
+      ctx.fillText(`${THEME.label}...`, GAME_W / 2, GAME_H / 2);
+      return;
+    }
     if (this.state === "levelcomplete") {
       this.drawLevelComplete();
       return;
@@ -2066,7 +2300,23 @@ class Game {
     for (const ac of this.acorns) ac.draw(ctx);
     for (const d of this.dogDirector.dogs) d.draw(ctx);
     for (const b of this.birds) b.draw(ctx);
-    this.fox.draw(ctx, this.state);
+    if (this.finish && this.finish.holeX !== null) this.drawFoxhole(ctx);
+    if (this.finish && this.finish.diveT > 0) {
+      // Sink and shrink into the burrow, clipped at ground level so he
+      // disappears below the lip rather than through it.
+      const t = Math.min(1, this.finish.diveT);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, GAME_W, this.groundY + 4);
+      ctx.clip();
+      ctx.translate(this.fox.x + this.fox.w / 2, this.groundY);
+      ctx.scale(1 - 0.35 * t, 1 - 0.35 * t);
+      ctx.translate(-(this.fox.x + this.fox.w / 2), -this.groundY + 46 * t);
+      this.fox.draw(ctx, this.state);
+      ctx.restore();
+    } else {
+      this.fox.draw(ctx, this.state);
+    }
     for (const shot of this.shots) shot.draw(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
     this.drawHud();
@@ -2096,12 +2346,15 @@ class Game {
       ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
       ctx.fillText(text, GAME_W / 2, y);
     };
-    line("WELL DONE!", "bold 44px 'Courier New', Courier, monospace", 84);
-    line("Level 1 complete", "bold 22px 'Courier New', Courier, monospace", 128);
+    const next = LEVELS[levelIndex + 1];
+    line("SAFELY HOME!", "bold 44px 'Courier New', Courier, monospace", 80);
+    line(`${THEME.label} complete`, "bold 22px 'Courier New', Courier, monospace", 124);
     line(`Acorns collected: ${this.acornCount}`,
-         "bold 19px 'Courier New', Courier, monospace", 168);
+         "bold 19px 'Courier New', Courier, monospace", 162);
     if (this.blinkTime % 1 < 0.65) {
-      line("Press ENTER to play again", "bold 19px 'Courier New', Courier, monospace", 214);
+      line(next ? `Press ENTER for the ${THEMES[next.theme].label}`
+                : "Press ENTER to play again",
+           "bold 19px 'Courier New', Courier, monospace", 208);
     }
     ctx.restore();
     this.drawHud();
