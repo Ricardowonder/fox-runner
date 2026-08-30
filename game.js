@@ -93,6 +93,7 @@ function makeTheme(dir, label, opts) {
       rock: q("obstacles", "rock", "rock.png"),
       log: q("obstacles", "log", "log.png"),
       stump: q("obstacles", "stump", "stump.png"),
+      boulder: q("obstacles", "boulder", "rock.png"),
     },
     // Any role may have any number of reaction poses - the ferret needs
     // two to cower, the badger four to stand all the way up.
@@ -176,8 +177,11 @@ const THEMES = {
     },
     sprites: {
       // The ferret is long and low where the hedgehog was round.
+      // The ferret and otter read alike at speed, so between them they
+      // now spawn about as often as one field animal did, leaving room
+      // for the logs and the boulder to carry the variety.
       hedgehog: {
-        h: 28, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
+        h: 28, weight: 1.7, trim: { sx: 31, sy: 116, sw: 450, sh: 199 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
           { trim: { sx: 31, sy: 101, sw: 450, sh: 214 }, hScale: 0.95 },
@@ -186,14 +190,19 @@ const THEMES = {
       },
       /* The badger rears onto its hind legs to try to catch the fox,
        * through four poses: on all fours, half up, upright, then reaching.
-       * It grows 34px to 58px - a real threat, but well under the 105px
-       * jump apex, so a plain tap still clears it.
+       * It grows 36px to 66px - the tallest thing in either level, but
+       * still under the 105px jump apex, so a tap alone clears it.
        */
       rabbit: {
         // Held back from the opening: a reared badger is the toughest
         // single obstacle in either level, so the ferret carries the
         // early game the way the hedgehog does in the field.
-        h: 34, rearHeight: 58, availableFrom: 500,
+        h: 36, rearHeight: 66, availableFrom: 500,
+        // Rears later than the default 520px, so it reads as reacting to
+        // the fox rather than standing up long before he arrives. Still
+        // clears the rise (0.28s) well before the latest viable jump.
+        rearNotice: 400,
+        weight: 2.2,
         trim: { sx: 31, sy: 102, sw: 449, sh: 213 },
         hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
         poses: [
@@ -205,7 +214,7 @@ const THEMES = {
       },
       // The otter takes the rock's slot, and cowers like the ferret.
       rock: {
-        h: 26, animal: true, flip: true, sink: 3,
+        h: 26, weight: 1.4, animal: true, flip: true, sink: 3,
         trim: { sx: 31, sy: 135, sw: 449, sh: 180 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
@@ -213,10 +222,14 @@ const THEMES = {
           { trim: { sx: 31, sy: 202, sw: 449, sh: 113 }, hScale: 0.82 },
         ],
       },
-      log: { h: 32, trim: { sx: 15, sy: 34, sw: 481, sh: 204 },
+      log: { h: 32, weight: 3.4, availableFrom: 250,
+             trim: { sx: 15, sy: 34, sw: 481, sh: 204 },
              hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 } },
-      stump: { h: 44, trim: { sx: 52, sy: 0, sw: 408, sh: 240 },
+      stump: { h: 44, weight: 2.6, availableFrom: 900,
+               trim: { sx: 52, sy: 0, sw: 408, sh: 240 },
                hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 } },
+      // The field's mossy boulder, earning its place in the woodland mix.
+      boulder: { h: 38, weight: 2.6, availableFrom: 400 },
       // The owl is a bigger bird than the bluebird.
       flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 } },
     },
@@ -430,6 +443,18 @@ const OBSTACLE_TYPES = {
     weight: 3, availableFrom: 1000, sink: 4,
     trim: { sx: 16, sy: 26, sw: 482, sh: 200 },
     hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 },
+  },
+  /* A sixth slot, used only by themes that ask for it (the field's mix is
+   * already tuned, so it never appears there). Its default filename is
+   * rock.png, so a theme without its own boulder art falls back to the
+   * field's mossy grey one - which suits a wood as well as a meadow.
+   */
+  boulder: {
+    src: THEME.obstacles.boulder,
+    h: 40, sizeClass: "medium", animal: false, pairable: true,
+    weight: 2.5, availableFrom: 999999, sink: 4,
+    trim: { sx: 14, sy: 14, sw: 484, sh: 304 },
+    hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
   },
   stump: {
     src: THEME.obstacles.stump,
@@ -1093,7 +1118,7 @@ class Obstacle {
   updateRear(dt, fox, images) {
     const fb = fox.getHitbox();
     const gap = this.x - (fb.x + fb.w);
-    if (gap < OBSTACLE_REAR.noticeDistance) {
+    if (gap < (this.type.rearNotice || OBSTACLE_REAR.noticeDistance)) {
       this.rear = Math.min(1, this.rear + dt / OBSTACLE_REAR.riseTime);
     }
     const groundLine = this.y + this.h; // keep the feet planted
