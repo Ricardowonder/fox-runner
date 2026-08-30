@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Fox Runner</title>
+  <meta name="theme-color" content="#1c2a1e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fox Runner">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="game-wrap">
+    <canvas id="game" aria-label="Fox Runner game"></canvas>
+    <button id="btn-jump" class="touch-btn touch-btn-left" tabindex="-1" aria-label="Jump">JUMP</button>
+    <button id="btn-throw" class="touch-btn touch-btn-right" tabindex="-1" aria-label="Throw acorn">THROW</button>
+  </main>
+  <div class="rotate-hint">Rotate your phone to play</div>
+  <script src="game.js?v=21"></script>
+  <script>
+    // Offline support + installability (needs HTTPS or localhost).
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>
