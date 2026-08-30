@@ -77,7 +77,7 @@ function jumpArc(speed) {
 }
 
 const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
-const LEVEL_GOAL = 4000;           // reaching this finishes level 1
+const LEVEL_GOAL = 3000;           // reaching this finishes level 1
 
 // Fox drawn CONTENT size (the visible artwork, not the padded PNG canvas).
 const FOX_H = 62;
@@ -236,6 +236,7 @@ const DIFFICULTY = {
       weights: { single: 1, spacedPair: 0.55, closePair: 0.30, spacedTriple: 0.10, comboTriple: 0 } },
     { score: 3000, speed: 450, gapMin: 0.80, gapMax: 1.30,
       weights: { single: 1, spacedPair: 0.65, closePair: 0.45, spacedTriple: 0.20, comboTriple: 0.10 } },
+    // The bands past LEVEL_GOAL are unused by level 1; kept for level 2.
     { score: 3500, speed: 485, gapMin: 0.73, gapMax: 1.18,
       weights: { single: 1, spacedPair: 0.72, closePair: 0.55, spacedTriple: 0.28, comboTriple: 0.18 } },
     { score: 4000, speed: 515, gapMin: 0.68, gapMax: 1.08,
