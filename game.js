@@ -305,6 +305,20 @@ function levelGoal() { return LEVELS[levelIndex].goal; }
 /* Finishing a level: the spawners stop, the fox's burrow scrolls in, and
  * he dives home. Then the success page, and on to the next setting.
  */
+/* Progress bar, sunk into the dirt strip below the grass. Each level is
+ * three stages; reaching a stage banks it, and dying restarts from there
+ * rather than from the very beginning - young players die a lot, and
+ * replaying the same opening every time is what makes them give up. The
+ * banked stage lives in memory only, so closing the game starts afresh.
+ * Kept clear of the left/right thumb buttons, which cover the bottom
+ * corners of the canvas and eat proportionally more room on small screens.
+ */
+const PROGRESS = {
+  stages: 3,
+  x: 180, w: 540, y: 284, h: 9,
+  markerR: 6,
+};
+
 const FINISH = {
   holeLeadIn: 1.6,  // seconds of clear ground before the burrow appears
   diveTime: 0.55,   // seconds to disappear down it
@@ -1812,6 +1826,8 @@ class Game {
     this.throwCooldown = 0;
     this.distance = 0;
     this.score = 0;
+    this.checkpointFlash = 0;
+    this.resetProgress(); // banked stages live only as long as the page
     this.hiScore = readHiScore();
     this.speed = DIFFICULTY.bands[0].speed;
     this.scroll = 0; // total scrolled px, drives parallax offsets
@@ -1904,17 +1920,28 @@ class Game {
     else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.advanceLevel();
   }
 
+  // Wipes banked stages: a new level, or a deliberate fresh start.
+  resetProgress() {
+    this.checkpoint = { stage: 0, score: 0, acorns: 0 };
+  }
+
   startRun() {
     this.state = "running";
     this.finish = null;
     this.obstacles = [];
     this.acorns = [];
-    this.acornCount = 0;
     this.shots = [];
     this.throwCooldown = 0;
     this.pendingRelease = null;
-    this.distance = 0;
-    this.score = 0;
+    // Resume from the furthest stage banked this session.
+    this.score = this.checkpoint.score;
+    this.distance = this.score * SCORE_DISTANCE_DIVISOR;
+    // Restarting mid-level with no ammunition against active dogs would be
+    // a trap, so a banked stage carries a small stash.
+    this.acornCount = this.checkpoint.stage > 0
+      ? Math.max(this.checkpoint.acorns, 2)
+      : 0;
+    this.checkpointFlash = 0;
     this.speed = DIFFICULTY.bands[0].speed;
     this.fox.reset();
     this.spawner.reset();
@@ -1929,6 +1956,7 @@ class Game {
    * run. Shows a brief loading line because a new setting means new files.
    */
   advanceLevel() {
+    this.resetProgress(); // a new setting starts from its own beginning
     if (levelIndex + 1 >= LEVELS.length) { this.startRun(); return; }
     levelIndex += 1;
     THEME = THEMES[LEVELS[levelIndex].theme];
@@ -2036,6 +2064,21 @@ class Game {
     this.distance += this.speed * dt;
     this.scroll += this.speed * dt;
     this.score = Math.floor(this.distance / SCORE_DISTANCE_DIVISOR);
+    // Bank a stage as it is passed.
+    const stage = Math.min(
+      PROGRESS.stages - 1,
+      Math.floor((this.score / levelGoal()) * PROGRESS.stages)
+    );
+    if (stage > this.checkpoint.stage) {
+      this.checkpoint = {
+        stage,
+        score: Math.round((levelGoal() * stage) / PROGRESS.stages),
+        acorns: this.acornCount,
+      };
+      this.checkpointFlash = 1.6;
+    }
+    if (this.checkpointFlash > 0) this.checkpointFlash -= dt;
+
     if (this.score >= levelGoal() && !this.finish) {
       this.score = levelGoal();
       this.beginFinish();
@@ -2235,6 +2278,87 @@ class Game {
     ctx.restore();
   }
 
+  /* The progress bar in the dirt: how far through the level you are, the
+   * two stage markers that bank your place, and the burrow at the end.
+   */
+  drawProgress(ctx) {
+    const { x, w, y, h, markerR } = PROGRESS;
+    const goal = levelGoal();
+    const p = Math.max(0, Math.min(1, this.score / goal));
+
+    ctx.save();
+    // Track, sunk into the soil.
+    roundRectPath(ctx, x, y, w, h, h / 2);
+    ctx.fillStyle = "rgba(28, 16, 8, 0.72)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 240, 210, 0.22)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Filled portion.
+    if (p > 0.002) {
+      ctx.save();
+      roundRectPath(ctx, x, y, w, h, h / 2);
+      ctx.clip();
+      const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+      grad.addColorStop(0, "#c8862c");
+      grad.addColorStop(1, "#ffd76b");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, w * p, h);
+      ctx.restore();
+    }
+
+    // Where the fox is right now.
+    if (p > 0.002 && p < 1) {
+      ctx.beginPath();
+      ctx.arc(x + w * p, y + h / 2, h / 2 + 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#fff4d8";
+      ctx.fill();
+    }
+
+    // Stage markers at a third and two thirds; lit once banked.
+    for (let i = 1; i < PROGRESS.stages; i++) {
+      const mx = x + (w * i) / PROGRESS.stages;
+      const reached = this.checkpoint.stage >= i;
+      ctx.beginPath();
+      ctx.arc(mx, y + h / 2, markerR, 0, Math.PI * 2);
+      ctx.fillStyle = reached ? "#ffe08a" : "rgba(28, 16, 8, 0.9)";
+      ctx.fill();
+      ctx.strokeStyle = reached ? "rgba(255,255,255,0.9)" : "rgba(255, 240, 210, 0.45)";
+      ctx.lineWidth = reached ? 2 : 1.5;
+      ctx.stroke();
+    }
+
+    // The burrow at the finish.
+    const ex = x + w;
+    ctx.beginPath();
+    ctx.arc(ex, y + h / 2, markerR + 3, 0, Math.PI * 2);
+    ctx.fillStyle = p >= 1 ? "#ffe08a" : "#3b2410";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 240, 210, 0.7)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (p < 1) {
+      ctx.beginPath(); // a dark mouth, so it reads as a hole to aim for
+      ctx.arc(ex, y + h / 2, markerR - 2, 0, Math.PI * 2);
+      ctx.fillStyle = "#140c05";
+      ctx.fill();
+    }
+
+    if (this.checkpointFlash > 0) {
+      ctx.globalAlpha = Math.min(1, this.checkpointFlash / 0.4);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.font = "bold 15px 'Courier New', Courier, monospace";
+      ctx.strokeStyle = "rgba(30, 45, 25, 0.9)";
+      ctx.lineWidth = 4;
+      ctx.strokeText("CHECKPOINT!", x + w / 2, y - 5);
+      ctx.fillStyle = "#ffe08a";
+      ctx.fillText("CHECKPOINT!", x + w / 2, y - 5);
+    }
+    ctx.restore();
+  }
+
   drawHud() {
     const { ctx } = this;
     ctx.save();
@@ -2257,6 +2381,7 @@ class Game {
     ctx.drawImage(this.images.acornIcon, 20, 12, 22, 22);
     ctx.fillText(`x ${this.acornCount}`, 48, 16);
     ctx.restore();
+    this.drawProgress(ctx);
   }
 
   drawHitboxes() {
