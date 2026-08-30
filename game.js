@@ -245,9 +245,11 @@ const DOG = {
     bite: "assets/hunting-dog-wake-run-cycle/assets/dog/hunting_dog_run_bite.png",
     // 05..16 run cycle appended at load
   },
+  // Per-pose `sink` pushes the sprite down into the grass (art has soft
+  // transparent edges at the bottom); default is 3 when unset.
   poses: {
-    sleep: { trim: { sx: 15, sy: 34, sw: 1509, sh: 990 }, h: 40 },
-    waking: { trim: { sx: 32, sy: 226, sw: 1458, sh: 533 }, h: 34 },
+    sleep: { trim: { sx: 15, sy: 34, sw: 1509, sh: 990 }, h: 44, sink: 7 },
+    waking: { trim: { sx: 32, sy: 226, sw: 1458, sh: 533 }, h: 34, sink: 5 },
     headShake: { trim: { sx: 0, sy: 30, sw: 1523, sh: 994 }, h: 50 },
     alert: { trim: { sx: 23, sy: 19, sw: 1481, sh: 957 }, h: 48 },
     run: { trim: { sx: 0, sy: 0, sw: 1536, sh: 1024 }, h: 56 },
@@ -711,7 +713,8 @@ class Dog {
   }
 
   get y() {
-    return this.groundY - this.h + 3; // small sink, like the other animals
+    const sink = DOG.poses[this.currentPose().key].sink || 3;
+    return this.groundY - this.h + sink;
   }
 
   wake() {
