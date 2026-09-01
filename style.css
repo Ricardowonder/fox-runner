@@ -87,6 +87,11 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Sound toggle, sitting just left of the fullscreen button. */
+.snd-btn {
+  right: 56px;
+}
+
 .fs-btn:active {
   background: rgba(255, 255, 255, 0.28);
 }

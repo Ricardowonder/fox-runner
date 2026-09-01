@@ -88,6 +88,7 @@ function makeTheme(dir, label, opts) {
     hero: HERO,
     cast: opts.cast, // which creature plays each role, for reference
     dog: opts.dog,   // per-level dog pacing, read via dogSetting()
+    music: opts.music, // this level's looping melody
     obstacles: {
       hedgehog: q("obstacles", "hedgehog", "hedgehog.png"),
       rabbit: q("obstacles", "rabbit", "rabbit.png"),
@@ -141,6 +142,16 @@ function makeTheme(dir, label, opts) {
 const THEMES = {
   field: makeTheme("field", "Field", {
     dog: { gapScale: 1.35 }, // a first level: dogs stay an occasional event
+    /* Bright and skipping, in C major pentatonic - no note in the scale
+     * can clash, which is why it stays friendly however fast it gets.
+     * Sixteen eighth notes: two bars that loop.
+     */
+    music: {
+      root: 72, // C5
+      lead: [0, 4, 7, 4, 9, 7, 4, 2, 0, 4, 7, 9, 12, 9, 7, null],
+      bass: [-12, null, null, null, -5, null, null, null,
+             -12, null, null, null, -5, null, null, null],
+    },
     cast: { hedgehog: "hedgehog", rabbit: "rabbit", chaser: "hunting dog",
             flyer: "bluebird", collectible: "acorn" },
     sprites: {
@@ -168,6 +179,13 @@ const THEMES = {
     // Dogs from the first stage here, and closer together: by level two
     // the player knows what a dog is and how to deal with one.
     dog: { availableFrom: 300, gapScale: 0.9 },
+    // The same idea a shade darker: A minor pentatonic, for deeper woods.
+    music: {
+      root: 69, // A4
+      lead: [0, 3, 7, 5, 3, 0, 3, 5, 7, 10, 12, 10, 7, 5, 3, null],
+      bass: [-12, null, null, null, -5, null, null, null,
+             -10, null, null, null, -5, null, null, null],
+    },
     cast: { hedgehog: "ferret", rabbit: "badger", rock: "otter",
             log: "mossy log", stump: "hollow log",
             chaser: "hunting dog", flyer: "owl", collectible: "acorn" },
@@ -882,6 +900,201 @@ function loadAssets() {
 }
 
 // ---------------------------------------------------------------------------
+// Music and sound
+// ---------------------------------------------------------------------------
+
+/* Everything is synthesised with the Web Audio API rather than loaded as
+ * files: it costs nothing to download, works offline, and - the point of
+ * the exercise - the tempo can be changed continuously, which sampled
+ * music cannot do without going sour.
+ *
+ * Each level has a short looping melody on a sixteen-step grid of eighth
+ * notes (two bars). The tempo climbs with progress through the level, so
+ * the same friendly tune quietly winds the player up as the burrow gets
+ * closer.
+ */
+const MUSIC = {
+  bpmStart: 96,
+  bpmEnd: 158,
+  stepBeats: 0.5,   // each grid step is an eighth note
+  lookahead: 0.12,  // seconds of audio scheduled ahead of the clock
+  tickMs: 25,
+  volume: 0.20,
+};
+
+const MUTE_KEY = "foxRunnerMuted";
+
+class Sound {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.timer = null;
+    this.pattern = null;
+    this.step = 0;
+    this.nextTime = 0;
+    this.progress = 0;
+    this.muted = false;
+    try {
+      this.muted = localStorage.getItem(MUTE_KEY) === "1";
+    } catch (e) {
+      /* storage unavailable; default to on */
+    }
+  }
+
+  // Browsers only allow audio to begin from a user gesture, so every
+  // input path calls this before anything is expected to be heard.
+  unlock() {
+    if (this.muted) return;
+    if (!this.ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      this.ctx = new Ctx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = MUSIC.volume;
+      this.master.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === "suspended") this.ctx.resume();
+  }
+
+  setMuted(muted) {
+    this.muted = muted;
+    try {
+      localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+    } catch (e) {
+      /* ignore */
+    }
+    if (muted) {
+      this.stopMusic();
+      if (this.ctx && this.ctx.state === "running") this.ctx.suspend();
+    } else {
+      this.unlock();
+    }
+  }
+
+  /* One note. `type` picks the timbre; the envelope is a fast attack and
+   * an exponential tail, which reads as a soft chime rather than a beep.
+   */
+  note(midi, when, dur, type, level) {
+    if (!this.ctx || this.muted) return;
+    const t = Math.max(when, this.ctx.currentTime);
+    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+    const gain = this.ctx.createGain();
+    gain.connect(this.master);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(level, t + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    osc.connect(gain);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+
+    // A quiet octave above puts a little sparkle on the lead line.
+    if (type === "triangle") {
+      const shimmer = this.ctx.createGain();
+      shimmer.connect(this.master);
+      shimmer.gain.setValueAtTime(0.0001, t);
+      shimmer.gain.exponentialRampToValueAtTime(level * 0.25, t + 0.012);
+      shimmer.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.7);
+      const o2 = this.ctx.createOscillator();
+      o2.type = "sine";
+      o2.frequency.setValueAtTime(freq * 2, t);
+      o2.connect(shimmer);
+      o2.start(t);
+      o2.stop(t + dur);
+    }
+  }
+
+  startMusic(pattern) {
+    this.pattern = pattern;
+    if (this.muted || !pattern) return;
+    this.unlock();
+    if (!this.ctx || this.timer) return;
+    this.step = 0;
+    this.nextTime = this.ctx.currentTime + 0.08;
+    this.timer = setInterval(() => this.schedule(), MUSIC.tickMs);
+  }
+
+  stopMusic() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  // How far through the level we are, 0..1 - drives the tempo.
+  setProgress(p) {
+    this.progress = Math.min(1, Math.max(0, p));
+  }
+
+  get bpm() {
+    return MUSIC.bpmStart + (MUSIC.bpmEnd - MUSIC.bpmStart) * this.progress;
+  }
+
+  /* Lookahead scheduler: queue up any steps falling inside the next
+   * window. Scheduling against the audio clock rather than firing notes
+   * from a timer is what keeps the rhythm steady while the game runs.
+   */
+  schedule() {
+    if (!this.ctx || !this.pattern || this.muted) return;
+    const stepDur = (60 / this.bpm) * MUSIC.stepBeats;
+    while (this.nextTime < this.ctx.currentTime + MUSIC.lookahead) {
+      const i = this.step % this.pattern.lead.length;
+      const lead = this.pattern.lead[i];
+      const bass = this.pattern.bass[i];
+      if (lead !== null && lead !== undefined) {
+        this.note(this.pattern.root + lead, this.nextTime, stepDur * 1.6, "triangle", 0.30);
+      }
+      if (bass !== null && bass !== undefined) {
+        this.note(this.pattern.root + bass, this.nextTime, stepDur * 1.9, "sine", 0.34);
+      }
+      this.nextTime += stepDur;
+      this.step++;
+    }
+  }
+
+  // Short one-off sounds. Kept quiet so they sit under the music.
+  sfx(name) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const r = this.pattern ? this.pattern.root : 72;
+    switch (name) {
+      case "jump":
+        this.note(r + 12, t, 0.12, "sine", 0.16);
+        this.note(r + 19, t + 0.05, 0.10, "sine", 0.10);
+        break;
+      case "collect":
+        this.note(r + 24, t, 0.10, "sine", 0.18);
+        this.note(r + 28, t + 0.06, 0.16, "sine", 0.14);
+        break;
+      case "throw":
+        this.note(r + 7, t, 0.09, "square", 0.05);
+        break;
+      case "stun":
+        this.note(r - 17, t, 0.20, "square", 0.09);
+        this.note(r - 5, t + 0.04, 0.14, "sine", 0.10);
+        break;
+      case "death":
+        [0, -3, -7, -12].forEach((n, i) =>
+          this.note(r + n, t + i * 0.11, 0.30, "triangle", 0.22));
+        break;
+      case "win":
+        [0, 4, 7, 12, 16].forEach((n, i) =>
+          this.note(r + n, t + i * 0.10, 0.45, "triangle", 0.26));
+        break;
+      case "checkpoint":
+        this.note(r + 12, t, 0.14, "sine", 0.16);
+        this.note(r + 16, t + 0.09, 0.22, "sine", 0.14);
+        break;
+    }
+  }
+}
+
+const sound = new Sound();
+
+// ---------------------------------------------------------------------------
 // High score (session-scoped)
 // ---------------------------------------------------------------------------
 
@@ -976,6 +1189,7 @@ class Fox {
       this.arc = jumpArc(speed || DIFFICULTY.bands[0].speed);
       this.vy = -this.arc.v;
       this.fallScale = null;
+      sound.sfx("jump");
       this.onGround = false;
       this.holding = true;   // extra lift while the button stays down
       this.holdElapsed = 0;
@@ -1930,6 +2144,7 @@ class Game {
 
   bindInput() {
     document.addEventListener("keydown", (e) => {
+      sound.unlock(); // browsers only allow audio to start from a gesture
       if (e.code === "Enter" || e.code === "NumpadEnter") {
         e.preventDefault();
         if (this.state === "levelcomplete") this.advanceLevel();
@@ -1954,6 +2169,18 @@ class Game {
   // with a short grace period after death so mashing jump at the moment
   // of a crash doesn't instantly restart.
   bindTouchButtons() {
+    const soundBtn = document.getElementById("btn-sound");
+    if (soundBtn) {
+      const paint = () => { soundBtn.textContent = sound.muted ? "🔇" : "🔊"; };
+      paint();
+      soundBtn.addEventListener("click", () => {
+        soundBtn.blur(); // keep Space from re-triggering the button
+        sound.setMuted(!sound.muted);
+        paint();
+        if (!sound.muted && this.state === "running") sound.startMusic(THEME.music);
+      });
+    }
+
     const jumpBtn = document.getElementById("btn-jump");
     const throwBtn = document.getElementById("btn-throw");
     if (!jumpBtn || !throwBtn) return;
@@ -1962,6 +2189,7 @@ class Game {
     // focus, which would otherwise make Space "click" them.
     const press = (action) => (e) => {
       e.preventDefault();
+      sound.unlock();
       if (this.state === "running") action();
       else this.tryStartFromButton();
     };
@@ -2001,6 +2229,7 @@ class Game {
   startRun() {
     this.state = "running";
     this.finish = null;
+    sound.startMusic(THEME.music);
     this.obstacles = [];
     this.acorns = [];
     this.shots = [];
@@ -2051,6 +2280,7 @@ class Game {
     this.acornCount--;
     this.throwCooldown = THROW.cooldown;
     this.fox.startThrow();
+    sound.sfx("throw");
     // The projectile leaves on the release frame, not at the key press.
     this.pendingRelease = THROW_ANIM.releaseAt;
   }
@@ -2093,6 +2323,8 @@ class Game {
   }
 
   completeLevel() {
+    sound.stopMusic();
+    sound.sfx("win");
     this.state = "levelcomplete";
     this.levelDoneAt = performance.now();
     this.fox.releaseJump();
@@ -2103,6 +2335,8 @@ class Game {
   }
 
   endRun() {
+    sound.stopMusic();
+    sound.sfx("death");
     this.state = "gameover";
     this.gameOverAt = performance.now();
     this.fox.dead = true;
@@ -2136,6 +2370,7 @@ class Game {
     this.distance += this.speed * dt;
     this.scroll += this.speed * dt;
     this.score = Math.floor(this.distance / SCORE_DISTANCE_DIVISOR);
+    sound.setProgress(this.score / levelGoal()); // tempo climbs with progress
     // Bank a stage as it is passed.
     const stage = Math.min(
       PROGRESS.stages - 1,
@@ -2148,6 +2383,7 @@ class Game {
         acorns: this.acornCount,
       };
       this.checkpointFlash = 1.6;
+      sound.sfx("checkpoint");
     }
     if (this.checkpointFlash > 0) this.checkpointFlash -= dt;
 
@@ -2206,6 +2442,7 @@ class Game {
           shot.dead = true;
           d.stun();
           this.dogsStopped++;
+          sound.sfx("stun");
           break;
         }
       }
@@ -2245,6 +2482,7 @@ class Game {
           ac.collected = true;
           this.acornCount++;
           this.acornsCollected++;
+          sound.sfx("collect");
         }
       }
     }
