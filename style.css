@@ -96,6 +96,72 @@ body {
   background: rgba(255, 255, 255, 0.28);
 }
 
+/* Name prompt, shown over the game-over page when a score earns a place. */
+.name-entry {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: rgba(20, 32, 18, 0.93);
+  border: 2px solid rgba(255, 224, 138, 0.85);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-family: "Courier New", Courier, monospace;
+  color: #ffe08a;
+  text-align: center;
+  z-index: 5;
+}
+
+.name-entry[hidden] { display: none; }
+
+.name-entry label {
+  font-weight: bold;
+  font-size: clamp(13px, 2.4vw, 16px);
+  letter-spacing: 0.02em;
+}
+
+.name-row { display: flex; gap: 8px; }
+
+.name-entry input {
+  flex: 1;
+  min-width: 0;
+  width: 8ch;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.95);
+  color: #17241b;
+  font-family: inherit;
+  font-weight: bold;
+  font-size: clamp(15px, 3vw, 19px);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.name-entry button {
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 2px solid rgba(255, 224, 138, 0.9);
+  background: #2f7a3a;
+  color: #fff;
+  font-family: inherit;
+  font-weight: bold;
+  font-size: clamp(13px, 2.6vw, 16px);
+  cursor: pointer;
+}
+
+.name-entry button:active { background: #3f9a4c; }
+
+.name-entry input:focus-visible,
+.name-entry button:focus-visible {
+  outline: 3px solid #ffe08a;
+  outline-offset: 2px;
+}
+
 /* In fullscreen the wrap becomes the whole screen: dark backdrop, game
    strip as wide as the screen allows, thumb buttons at the screen edges. */
 .game-wrap:fullscreen,

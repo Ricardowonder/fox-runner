@@ -1191,20 +1191,73 @@ const sound = new Sound();
 // High score (session-scoped)
 // ---------------------------------------------------------------------------
 
-function readHiScore() {
+/* Scores survive between visits, so a table set on Sunday is still there
+ * to beat on Monday. localStorage rather than sessionStorage, which is
+ * what the single high score used before and lost on every tab close.
+ * Each entry keeps the level it was set on, since a 3000 in the woodland
+ * is a different achievement from a 3000 in the field.
+ */
+const SCORES_KEY = "foxRunnerScores";
+const NAME_KEY = "foxRunnerLastName";
+const SCORE_SLOTS = 5;
+const NAME_MAX = 8;
+
+function readScores() {
   try {
-    return Number(sessionStorage.getItem(HISCORE_KEY)) || 0;
+    const raw = JSON.parse(localStorage.getItem(SCORES_KEY));
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((e) => e && typeof e.score === "number")
+      .sort((a, b) => b.score - a.score)
+      .slice(0, SCORE_SLOTS);
   } catch (e) {
-    return 0;
+    return []; // unreadable or storage blocked: start empty rather than break
   }
 }
 
-function writeHiScore(score) {
+function writeScores(list) {
   try {
-    sessionStorage.setItem(HISCORE_KEY, String(score));
+    localStorage.setItem(SCORES_KEY, JSON.stringify(list.slice(0, SCORE_SLOTS)));
   } catch (e) {
-    /* sessionStorage unavailable — in-memory value still works */
+    /* private mode: the table just will not persist */
   }
+}
+
+// A score earns a place if the table has room or it beats the last entry.
+function scoreQualifies(score, list) {
+  if (score <= 0) return false;
+  if (list.length < SCORE_SLOTS) return true;
+  return score > list[list.length - 1].score;
+}
+
+function recordScore(name, score, level) {
+  const list = readScores();
+  list.push({ name: name.slice(0, NAME_MAX) || "FOX", score, level });
+  list.sort((a, b) => b.score - a.score);
+  const kept = list.slice(0, SCORE_SLOTS);
+  writeScores(kept);
+  return kept;
+}
+
+function readLastName() {
+  try {
+    return localStorage.getItem(NAME_KEY) || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function writeLastName(name) {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+function bestScore() {
+  const list = readScores();
+  return list.length ? list[0].score : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -2207,7 +2260,8 @@ class Game {
     this.score = 0;
     this.checkpointFlash = 0;
     this.resetProgress(); // banked stages live only as long as the page
-    this.hiScore = readHiScore();
+    this.hiScore = bestScore();
+    this.scores = readScores();
     this.speed = DIFFICULTY.bands[0].speed;
     this.scroll = 0; // total scrolled px, drives parallax offsets
     this.blinkTime = 0;
@@ -2237,6 +2291,7 @@ class Game {
 
   bindInput() {
     document.addEventListener("keydown", (e) => {
+      if (this.nameOpen) return; // the name prompt owns the keyboard
       sound.unlock(); // browsers only allow audio to start from a gesture
       if (e.code === "Enter" || e.code === "NumpadEnter") {
         e.preventDefault();
@@ -2262,6 +2317,18 @@ class Game {
   // with a short grace period after death so mashing jump at the moment
   // of a crash doesn't instantly restart.
   bindTouchButtons() {
+    const nameForm = document.getElementById("name-entry");
+    if (nameForm) {
+      nameForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        this.commitScore(document.getElementById("name-input").value);
+      });
+      // Typing a name must not also drive the fox.
+      for (const ev of ["keydown", "keyup", "pointerdown"]) {
+        nameForm.addEventListener(ev, (e) => e.stopPropagation());
+      }
+    }
+
     const soundBtn = document.getElementById("btn-sound");
     if (soundBtn) {
       const paint = () => { soundBtn.textContent = sound.muted ? "🔇" : "🔊"; };
@@ -2281,6 +2348,7 @@ class Game {
     // preventDefault on pointerdown also stops the buttons from taking
     // focus, which would otherwise make Space "click" them.
     const press = (action) => (e) => {
+      if (this.nameOpen) return;
       e.preventDefault();
       sound.unlock();
       if (this.state === "running") action();
@@ -2304,6 +2372,7 @@ class Game {
     // Tapping the play field itself also starts/restarts.
     this.canvas.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      if (this.nameOpen) return;
       if (this.state !== "running") this.tryStartFromButton();
     });
   }
@@ -2441,10 +2510,53 @@ class Game {
     this.state = "levelcomplete";
     this.levelDoneAt = performance.now();
     this.fox.releaseJump();
-    if (this.score > this.hiScore) {
-      this.hiScore = this.score;
-      writeHiScore(this.hiScore);
+    // Finishing the last level ends the run, so the score is final there.
+    // Otherwise the run carries on into the next setting and is banked
+    // when it eventually ends.
+    if (!LEVELS[levelIndex + 1]) this.finishRunScore();
+    else if (this.score > this.hiScore) this.hiScore = this.score;
+  }
+
+  /* A run has ended for good. Bank the score, and if it earned a place in
+   * the table ask who it belongs to.
+   */
+  finishRunScore() {
+    this.scores = readScores();
+    this.pendingScore = null;
+    if (this.score > this.hiScore) this.hiScore = this.score;
+    if (scoreQualifies(this.score, this.scores)) {
+      this.pendingScore = { score: this.score, level: THEME.label };
+      this.openNameEntry();
     }
+  }
+
+  // The name prompt is a real text field over the canvas: it works with a
+  // keyboard, and brings up the on-screen one on a tablet.
+  openNameEntry() {
+    const form = document.getElementById("name-entry");
+    const input = document.getElementById("name-input");
+    if (!form || !input) {
+      // No prompt available: still record the score under the last name.
+      this.commitScore(readLastName() || "FOX");
+      return;
+    }
+    input.value = readLastName();
+    form.hidden = false;
+    this.nameOpen = true;
+    setTimeout(() => { input.focus(); input.select(); }, 30);
+  }
+
+  commitScore(name) {
+    if (!this.pendingScore) return;
+    const clean = name.trim().toUpperCase().slice(0, NAME_MAX) || "FOX";
+    writeLastName(clean);
+    this.scores = recordScore(clean, this.pendingScore.score, this.pendingScore.level);
+    this.hiScore = bestScore();
+    this.justSet = clean + "|" + this.pendingScore.score;
+    this.pendingScore = null;
+    const form = document.getElementById("name-entry");
+    if (form) form.hidden = true;
+    this.nameOpen = false;
   }
 
   endRun() {
@@ -2453,10 +2565,7 @@ class Game {
     this.state = "gameover";
     this.gameOverAt = performance.now();
     this.fox.dead = true;
-    if (this.score > this.hiScore) {
-      this.hiScore = this.score;
-      writeHiScore(this.hiScore);
-    }
+    this.finishRunScore();
   }
 
   frame(time) {
@@ -2813,13 +2922,56 @@ class Game {
       ctx.globalAlpha = Math.min(1, this.checkpointFlash / 0.4);
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.font = "bold 15px 'Courier New', Courier, monospace";
+      ctx.font = "bold 14px 'Courier New', Courier, monospace";
       ctx.strokeStyle = "rgba(30, 45, 25, 0.9)";
       ctx.lineWidth = 4;
       ctx.strokeText("CHECKPOINT!", x + w / 2, y - 5);
       ctx.fillStyle = "#ffe08a";
       ctx.fillText("CHECKPOINT!", x + w / 2, y - 5);
     }
+    ctx.restore();
+  }
+
+  /* The saved table, on the game-over page. Hidden while the name prompt
+   * is up, so the two never fight for the same space.
+   */
+  drawScoreTable(ctx, outlined) {
+    if (this.nameOpen) return;
+    const rows = this.scores || [];
+    if (!rows.length) return;
+
+    const top = 168;
+    const rowH = 19;
+    const panelW = 380;
+    const left = GAME_W / 2 - panelW / 2;
+
+    ctx.save();
+    roundRectPath(ctx, left, top - 24, panelW, rows.length * rowH + 30, 10);
+    ctx.fillStyle = "rgba(20, 32, 18, 0.62)";
+    ctx.fill();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
+    outlined("BEST RUNS", GAME_W / 2, top - 11,
+      "bold 12px 'Courier New', Courier, monospace", 3);
+
+    rows.forEach((entry, i) => {
+      const y = top + 8 + i * rowH;
+      const mine = this.justSet === entry.name + "|" + entry.score;
+      ctx.fillStyle = mine ? "#ffe08a" : "rgba(255, 255, 255, 0.95)";
+      ctx.font = "bold 14px 'Courier New', Courier, monospace";
+      ctx.lineWidth = 3;
+      ctx.textAlign = "left";
+      ctx.strokeText(`${i + 1}. ${entry.name}`, left + 18, y);
+      ctx.fillText(`${i + 1}. ${entry.name}`, left + 18, y);
+      ctx.textAlign = "right";
+      // Full setting name: "FIEL" read as a truncation bug, not a label.
+      const tail = String(entry.score).padStart(5, "0") +
+        (entry.level ? "  " + entry.level.toUpperCase() : "");
+      ctx.strokeText(tail, left + panelW - 18, y);
+      ctx.fillText(tail, left + panelW - 18, y);
+    });
     ctx.restore();
   }
 
@@ -3101,14 +3253,16 @@ class Game {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
     ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
-    outlined("GAME OVER", GAME_W / 2, 108, "bold 44px 'Courier New', Courier, monospace", 6);
+    outlined("GAME OVER", GAME_W / 2, 96, "bold 42px 'Courier New', Courier, monospace", 6);
 
     const pad = (n) => String(n).padStart(5, "0");
-    outlined(`SCORE ${pad(this.score)}   HI ${pad(this.hiScore)}`, GAME_W / 2, 150,
+    outlined(`SCORE ${pad(this.score)}`, GAME_W / 2, 128,
       "bold 18px 'Courier New', Courier, monospace");
 
-    if (this.blinkTime % 1 < 0.65) {
-      outlined("Press ENTER or tap to restart", GAME_W / 2, 281,
+    this.drawScoreTable(ctx, outlined);
+
+    if (!this.nameOpen && this.blinkTime % 1 < 0.65) {
+      outlined("Press ENTER or tap to restart", GAME_W / 2, 288,
         "bold 19px 'Courier New', Courier, monospace");
     }
     ctx.restore();

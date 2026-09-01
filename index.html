@@ -12,7 +12,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fox Runner">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=46">
 </head>
 <body>
   <main class="game-wrap">
@@ -21,9 +21,17 @@
     <button id="btn-throw" class="touch-btn touch-btn-right" tabindex="-1" aria-label="Throw acorn">THROW</button>
     <button id="btn-sound" class="fs-btn snd-btn" tabindex="-1" aria-label="Sound on or off">🔊</button>
     <button id="btn-fullscreen" class="fs-btn" tabindex="-1" aria-label="Full screen">⛶</button>
+    <form id="name-entry" class="name-entry" hidden>
+      <label for="name-input">New high score! Who was that?</label>
+      <div class="name-row">
+        <input id="name-input" type="text" maxlength="8" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" placeholder="FOX">
+        <button type="submit">Save</button>
+      </div>
+    </form>
   </main>
   <div class="rotate-hint">Rotate your phone to play</div>
-  <script src="game.js?v=45"></script>
+  <script src="game.js?v=47"></script>
   <script>
     // Offline support + installability (needs HTTPS or localhost).
     if ("serviceWorker" in navigator) {
