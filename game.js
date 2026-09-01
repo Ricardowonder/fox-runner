@@ -61,15 +61,28 @@ function makeTheme(dir, label, opts) {
   opts = opts || {};
   const fb = opts.fallback ? `assets/themes/${opts.fallback}` : null;
   const files = opts.files || {};
+  /* Roles this theme knowingly borrows from its fallback. Without this
+   * the loader speculatively asks for a file the theme never had, takes a
+   * 404, and only then falls back - about thirty wasted round-trips and a
+   * console full of red every time a level loads. Naming them costs one
+   * line and makes the borrowing visible.
+   */
+  const inherits = new Set(opts.inherits || []);
+  // Either a whole folder ("chaser") or a single role ("obstacles.boulder").
+  const borrowed = (sub, role) =>
+    !!fb && (inherits.has(sub) || (role !== undefined && inherits.has(sub + "." + role)));
   // Each entry is [preferred, fallback] so the loader can try in order.
   // A theme may name its files whatever suits its cast (ferret.png in the
   // hedgehog role); `files` maps role -> filename and the fallback keeps
   // the default name, since that is what the other theme's folder has.
-  const p = (sub, file) => {
+  const p = (sub, file, role) => {
+    if (borrowed(role || sub)) return `${fb}/${sub}/${file}`;
+
     const own = `assets/themes/${dir}/${sub}/${file}`;
     return fb ? [own, `${fb}/${sub}/${file}`] : own;
   };
   const q = (sub, role, def) => {
+    if (borrowed(sub, role)) return `${fb}/${sub}/${def}`;
     const named = files[sub] && files[sub][role];
     if (!named) return p(sub, def);
     const own = `assets/themes/${dir}/${sub}/${named}`;
@@ -78,7 +91,7 @@ function makeTheme(dir, label, opts) {
   const qList = (sub, role, defs) => {
     const named = files[sub] && files[sub][role];
     return defs.map((def, i) => {
-      if (!named || !named[i]) return p(sub, def);
+      if (borrowed(sub) || !named || !named[i]) return p(sub, def);
       const own = `assets/themes/${dir}/${sub}/${named[i]}`;
       return fb ? [own, `${fb}/${sub}/${def}`] : own;
     });
@@ -99,9 +112,12 @@ function makeTheme(dir, label, opts) {
     },
     // Any role may have any number of reaction poses - the ferret needs
     // two to cower, the badger four to stand all the way up.
+    // A theme that names its own reaction files owns them outright, so no
+    // fallback half is built - the field has no ferret_1.png to fall back to.
     reactions: opts.reactions
       ? Object.fromEntries(Object.entries(opts.reactions).map(
-          ([role, names]) => [role, names.map((n) => p("reactions", n))]))
+          ([role, names]) => [role,
+            names.map((n) => `assets/themes/${dir}/reactions/${n}`)]))
       : {
           hedgehog: qList("reactions", "hedgehog", ["hedgehog_1.png", "hedgehog_2.png"]),
           rabbit: qList("reactions", "rabbit", ["rabbit_1.png", "rabbit_2.png"]),
@@ -121,8 +137,8 @@ function makeTheme(dir, label, opts) {
       sky: q("scenery", "sky", "sky.png"),
       hillsFar: p("scenery", "hills_far.png"),
       trees: qList("scenery", "trees", seq(3, (i) => `tree_${pad2(i + 1)}.png`)),
-      bushes: [p("scenery", "bush_strip.png"), p("scenery", "bush_01.png"),
-               p("scenery", "bush_02.png"), p("scenery", "bush_03.png")],
+      bushes: ["bush_strip.png", "bush_01.png", "bush_02.png", "bush_03.png"]
+        .map((f) => p("scenery", f, "bushes")),
     },
     ground: { grass: p("ground", "grass.png"), dirt: p("ground", "dirt.png") },
     pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
@@ -176,6 +192,9 @@ const THEMES = {
    */
   woodland: makeTheme("woodland", "Woodland", {
     fallback: "field",
+    // Has its own cast, scenery and trees; borrows the rest for now.
+    inherits: ["ground", "chaser", "collectible", "pages", "bushes",
+               "obstacles.boulder"],
     // Dogs from the first stage here, and closer together: by level two
     // the player knows what a dog is and how to deal with one.
     dog: { availableFrom: 300, gapScale: 0.9 },
@@ -813,12 +832,15 @@ function bindTheme() {
  * a theme still being drawn borrows the other theme's art for anything
  * its own folder does not have yet, so a missing file is not an error.
  */
-function loadImage(src) {
+function loadImage(src, opts) {
   const chain = Array.isArray(src) ? src.slice() : [src];
   const tryNext = () => {
     const path = chain.shift();
     return new Promise((resolve, reject) => {
       const img = new Image();
+      if (opts && opts.priority) {
+        try { img.fetchPriority = opts.priority; } catch (e) { /* unsupported */ }
+      }
       img.onload = () => resolve(img);
       img.onerror = () => {
         if (chain.length) resolve(tryNext());
@@ -861,6 +883,64 @@ function applyThemeSprites() {
   for (const t of Object.values(OBSTACLE_TYPES)) {
     if (t.rearHeight) t.pairable = false;
   }
+}
+
+/* Every image a theme needs, as loader entries (a path, or a
+ * [preferred, fallback] pair). Mirrors what bindTheme wires up.
+ */
+function themeImageEntries(theme) {
+  const out = [];
+  const push = (v) => { if (v) out.push(v); };
+  theme.hero.run.forEach(push);
+  push(theme.hero.jump);
+  push(theme.hero.land);
+  push(theme.hero.hit);
+  theme.hero.throw.forEach(push);
+  Object.values(theme.obstacles).forEach(push);
+  Object.values(theme.reactions).forEach((poses) => poses.forEach(push));
+  ["sleep", "waking", "headShake", "alert", "crash", "bite"]
+    .forEach((k) => push(theme.chaser[k]));
+  theme.chaser.run.forEach(push);
+  theme.flyer.fly.forEach(push);
+  push(theme.collectible.item);
+  push(theme.collectible.icon);
+  push(theme.scenery.sky);
+  push(theme.scenery.hillsFar);
+  theme.scenery.trees.forEach(push);
+  theme.scenery.bushes.forEach(push);
+  push(theme.ground.grass);
+  push(theme.ground.dirt);
+  push(theme.pages.intro);
+  push(theme.pages.gameOver);
+  push(theme.foxhole);
+  push(theme.levelCompleteBg);
+  return out;
+}
+
+/* Quietly pull the next level's artwork into the browser cache while the
+ * current one is being played, so moving on is instant instead of sitting
+ * on a loading screen. Two at a time and started once the run has settled,
+ * so it never competes with the game for bandwidth; failures are ignored,
+ * because this is only ever an optimisation - advanceLevel still loads
+ * whatever is missing.
+ */
+const prefetched = {};
+
+function prefetchTheme(theme) {
+  if (!theme || prefetched[theme.label]) return;
+  prefetched[theme.label] = true;
+  const queue = themeImageEntries(theme);
+  let active = 0;
+  const pump = () => {
+    while (active < 2 && queue.length) {
+      const entry = queue.shift();
+      active++;
+      loadImage(entry, { priority: "low" })
+        .catch(() => {})
+        .then(() => { active--; pump(); });
+    }
+  };
+  pump();
 }
 
 function loadAssets() {
@@ -2221,6 +2301,24 @@ class Game {
     else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.advanceLevel();
   }
 
+  /* Once a run is underway, start pulling the next level's art down in
+   * the background. Deferred to idle time (or a few seconds in) so the
+   * opening of the level, which is when the game is least forgiving of a
+   * stutter, has the connection to itself.
+   */
+  schedulePrefetch() {
+    if (this.prefetchQueued) return;
+    const next = LEVELS[levelIndex + 1];
+    if (!next) return;
+    this.prefetchQueued = true;
+    const go = () => prefetchTheme(THEMES[next.theme]);
+    if (window.requestIdleCallback) {
+      requestIdleCallback(go, { timeout: 6000 });
+    } else {
+      setTimeout(go, 4000);
+    }
+  }
+
   // Wipes banked stages: a new level, or a deliberate fresh start.
   resetProgress() {
     this.checkpoint = { stage: 0, score: 0, acorns: 0 };
@@ -2230,6 +2328,7 @@ class Game {
     this.state = "running";
     this.finish = null;
     sound.startMusic(THEME.music);
+    this.schedulePrefetch();
     this.obstacles = [];
     this.acorns = [];
     this.shots = [];
@@ -2257,6 +2356,7 @@ class Game {
    */
   advanceLevel() {
     this.resetProgress(); // a new setting starts from its own beginning
+    this.prefetchQueued = false; // so the level after this one gets queued too
     if (levelIndex + 1 >= LEVELS.length) { this.startRun(); return; }
     levelIndex += 1;
     THEME = THEMES[LEVELS[levelIndex].theme];
