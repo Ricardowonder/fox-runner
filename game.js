@@ -387,6 +387,8 @@ const FINISH = {
   holeW: 132,
   holeH: 34,
   trim: { sx: 6, sy: 81, sw: 500, sh: 256 }, // content box of fox_hole.png
+  sink: 10,        // how far the burrow sits into the grass
+  mouthFrac: 0.42, // height of the dark mouth above the burrow's base
 };
 
 // Fox drawn CONTENT size (the visible artwork, not the padded PNG canvas).
@@ -2587,7 +2589,11 @@ class Game {
     if (f.diveT === 0) {
       f.holeX -= this.speed * dt;
       const fb = this.fox.getHitbox();
-      if (f.holeX + FINISH.holeW / 2 <= fb.x + fb.w / 2 && this.fox.onGround) {
+      /* Start the dive while the burrow is still a little ahead of him,
+       * so he runs forward into its mouth. Triggering on its trailing
+       * edge meant it had already slid past and he dived backwards.
+       */
+      if (f.holeX <= fb.x + fb.w / 2 + 26 && this.fox.onGround) {
         f.diveT = 0.0001; // reached home
       }
       return;
@@ -2686,6 +2692,10 @@ class Game {
 
   update(dt) {
     this.speed = difficultyAt(this.score).speed;
+    // Once he is going down the hole, everything stops. Otherwise the
+    // ground kept scrolling under a burrow that had stopped moving with
+    // it, and the burrow appeared to slide across the world.
+    if (this.finish && this.finish.diveT > 0) this.speed = 0;
     this.distance += this.speed * dt;
     this.scroll += this.speed * dt;
     this.score = Math.floor(this.distance / SCORE_DISTANCE_DIVISOR);
@@ -2886,6 +2896,16 @@ class Game {
    * drawn - an earth mound with a dark mouth - so the ending works before
    * the artwork lands.
    */
+  // Where the burrow sits, and where its mouth is - the point the fox
+  // aims for as he dives.
+  foxholeBox() {
+    const t = FINISH.trim;
+    const w = FINISH.holeW;
+    const h = w / (t.sw / t.sh);
+    const bottom = this.groundY + FINISH.sink;
+    return { x: this.finish.holeX, w, h, bottom, mouthY: bottom - h * FINISH.mouthFrac };
+  }
+
   drawFoxhole(ctx) {
     const x = this.finish.holeX;
     const img = this.images.foxhole;
@@ -2893,10 +2913,9 @@ class Game {
     const h = FINISH.holeH;
     if (img) {
       const t = FINISH.trim;
-      const dh = w / (t.sw / t.sh);
-      // Sunk a little into the grass, like every other ground sprite.
+      const box = this.foxholeBox();
       ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh,
-        x - w / 2, this.groundY + 10 - dh, w, dh);
+        x - w / 2, box.bottom - box.h, w, box.h);
       return;
     }
     ctx.save();
@@ -3314,23 +3333,29 @@ class Game {
     for (const ac of this.acorns) ac.draw(ctx);
     for (const d of this.dogDirector.dogs) d.draw(ctx);
     for (const b of this.birds) b.draw(ctx);
-    if (this.finish && this.finish.holeX !== null) this.drawFoxhole(ctx);
-    if (this.finish && this.finish.diveT > 0) {
-      // Sink and shrink into the burrow, clipped at ground level so he
-      // disappears below the lip rather than through it.
+    const diving = this.finish && this.finish.diveT > 0;
+    if (diving) {
+      /* Draw the fox first so the burrow covers him: he shrinks into the
+       * dark mouth and the mound hides him, which reads as going in
+       * rather than sinking through the grass in front of it.
+       */
       const t = Math.min(1, this.finish.diveT);
+      const ease = t * t; // gathers pace as he disappears
+      const box = this.foxholeBox();
+      const cx = this.fox.x + this.fox.w / 2;
+      const cy = this.fox.y + this.fox.h / 2;
+      const toX = cx + (box.x - cx) * ease;
+      const toY = cy + (box.mouthY - cy) * ease;
+      const scale = 1 - 0.72 * ease;
       ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, GAME_W, this.groundY + 4);
-      ctx.clip();
-      ctx.translate(this.fox.x + this.fox.w / 2, this.groundY);
-      ctx.scale(1 - 0.35 * t, 1 - 0.35 * t);
-      ctx.translate(-(this.fox.x + this.fox.w / 2), -this.groundY + 46 * t);
+      ctx.translate(toX, toY);
+      ctx.scale(scale, scale);
+      ctx.translate(-cx, -cy);
       this.fox.draw(ctx, this.state);
       ctx.restore();
-    } else {
-      this.fox.draw(ctx, this.state);
     }
+    if (this.finish && this.finish.holeX !== null) this.drawFoxhole(ctx);
+    if (!diving) this.fox.draw(ctx, this.state);
     for (const shot of this.shots) shot.draw(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
     this.drawHud();
