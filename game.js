@@ -2302,6 +2302,11 @@ class Game {
     this.bindInput();
 
     window.addEventListener("resize", () => this.setupCanvas());
+    // Switching apps or tabs mid-run should not cost a life.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.pauseRun();
+    });
+    window.addEventListener("blur", () => this.pauseRun());
     requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -2324,8 +2329,12 @@ class Game {
         e.preventDefault();
         if (this.state === "levelcomplete") this.advanceLevel();
         else if (this.state !== "running" && this.state !== "loading") this.startRun();
+      } else if (e.code === "Escape" || e.code === "KeyP") {
+        e.preventDefault();
+        if (!e.repeat) this.togglePause();
       } else if (e.code === "Space") {
         e.preventDefault();
+        if (this.state === "paused" && !e.repeat) { this.resumeRun(); return; }
         if (this.state === "running" && !e.repeat) this.fox.jump(this.speed);
       } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
         e.preventDefault();
@@ -2384,7 +2393,8 @@ class Game {
       if (this.nameOpen) return;
       e.preventDefault();
       sound.unlock();
-      if (this.state === "running") action();
+      if (this.state === "paused") this.resumeRun();
+      else if (this.state === "running") action();
       else this.tryStartFromButton();
     };
     jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump(this.speed)));
@@ -2406,6 +2416,8 @@ class Game {
     this.canvas.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       if (this.nameOpen) return;
+      if (this.state === "running") { this.pauseRun(); return; }
+      if (this.state === "paused") { this.resumeRun(); return; }
       if (this.state === "ready" && this.levelChips.length) {
         // Map the tap into canvas coordinates before hit-testing the chips.
         const r = this.canvas.getBoundingClientRect();
@@ -2511,6 +2523,30 @@ class Game {
         THEME = THEMES[LEVELS[levelIndex].theme];
         this.startRun();
       });
+  }
+
+  /* Pausing freezes the run: update() only ever runs in the "running"
+   * state, so stopping the music and changing state is the whole job.
+   * The frame loop already clamps dt, so however long the pause lasts
+   * nothing leaps forward on resume.
+   */
+  togglePause() {
+    if (this.state === "running") this.pauseRun();
+    else if (this.state === "paused") this.resumeRun();
+  }
+
+  pauseRun() {
+    if (this.state !== "running") return;
+    this.state = "paused";
+    this.pausedAt = performance.now();
+    sound.stopMusic();
+  }
+
+  resumeRun() {
+    if (this.state !== "paused") return;
+    this.state = "running";
+    sound.unlock();
+    sound.startMusic(THEME.music);
   }
 
   throwAcorn() {
@@ -3253,6 +3289,11 @@ class Game {
       this.drawLevelComplete();
       return;
     }
+    if (this.state === "paused") {
+      this.drawScene();
+      this.drawPaused();
+      return;
+    }
 
     // Game over: hold the caught moment for a beat, then cut to the
     // dedicated game-over page.
@@ -3261,6 +3302,13 @@ class Game {
       return;
     }
 
+    this.drawScene();
+  }
+
+  // The playfield itself. Shared by the live game and the pause overlay,
+  // which draws the frozen scene underneath its panel.
+  drawScene() {
+    const { ctx } = this;
     this.drawBackground();
     for (const ob of this.obstacles) ob.draw(ctx);
     for (const ac of this.acorns) ac.draw(ctx);
@@ -3286,6 +3334,30 @@ class Game {
     for (const shot of this.shots) shot.draw(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
     this.drawHud();
+  }
+
+  // Pause panel over the frozen scene.
+  drawPaused() {
+    const { ctx } = this;
+    ctx.save();
+    ctx.fillStyle = "rgba(20, 32, 18, 0.58)";
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const line = (text, font, y, fill) => {
+      ctx.font = font;
+      ctx.strokeStyle = "rgba(30, 45, 25, 0.92)";
+      ctx.lineWidth = 5;
+      ctx.strokeText(text, GAME_W / 2, y);
+      ctx.fillStyle = fill || "rgba(255, 255, 255, 0.97)";
+      ctx.fillText(text, GAME_W / 2, y);
+    };
+    line("PAUSED", "bold 42px 'Courier New', Courier, monospace", 128);
+    if (this.blinkTime % 1 < 0.68) {
+      line("Tap or press SPACE to keep going",
+           "bold 18px 'Courier New', Courier, monospace", 174, "#ffe08a");
+    }
+    ctx.restore();
   }
 
   /* Level-complete page: the woodland scene held still with the fox
