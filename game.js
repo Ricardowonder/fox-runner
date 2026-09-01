@@ -1255,6 +1255,29 @@ function writeLastName(name) {
   }
 }
 
+/* How far the fox has ever got. Unlocks the settings beyond the first so
+ * a returning player is not made to replay the field every time; kept in
+ * localStorage, so unlike a run's checkpoints it survives closing the game.
+ */
+const FURTHEST_KEY = "foxRunnerFurthest";
+
+function readFurthest() {
+  try {
+    const n = parseInt(localStorage.getItem(FURTHEST_KEY), 10);
+    return Number.isFinite(n) ? Math.min(Math.max(n, 0), LEVELS.length - 1) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+function writeFurthest(index) {
+  try {
+    localStorage.setItem(FURTHEST_KEY, String(index));
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 function bestScore() {
   const list = readScores();
   return list.length ? list[0].score : 0;
@@ -2262,6 +2285,10 @@ class Game {
     this.resetProgress(); // banked stages live only as long as the page
     this.hiScore = bestScore();
     this.scores = readScores();
+    this.furthest = readFurthest();
+    // Returning players start at the furthest setting they have reached.
+    this.levelChoice = this.furthest;
+    this.levelChips = [];
     this.speed = DIFFICULTY.bands[0].speed;
     this.scroll = 0; // total scrolled px, drives parallax offsets
     this.blinkTime = 0;
@@ -2300,9 +2327,15 @@ class Game {
       } else if (e.code === "Space") {
         e.preventDefault();
         if (this.state === "running" && !e.repeat) this.fox.jump(this.speed);
-      } else if (e.code === "ArrowLeft") {
+      } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
         e.preventDefault();
-        if (this.state === "running" && !e.repeat) this.throwAcorn();
+        if (this.state === "running") {
+          if (e.code === "ArrowLeft" && !e.repeat) this.throwAcorn();
+        } else if (this.state === "ready" && this.furthest > 0) {
+          // On the intro the arrows pick a setting instead.
+          const step = e.code === "ArrowRight" ? 1 : -1;
+          this.levelChoice = Math.min(Math.max(this.levelChoice + step, 0), this.furthest);
+        }
       }
     });
     document.addEventListener("keyup", (e) => {
@@ -2373,12 +2406,20 @@ class Game {
     this.canvas.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       if (this.nameOpen) return;
+      if (this.state === "ready" && this.levelChips.length) {
+        // Map the tap into canvas coordinates before hit-testing the chips.
+        const r = this.canvas.getBoundingClientRect();
+        const cx = (e.clientX - r.left) * (GAME_W / r.width);
+        const cy = (e.clientY - r.top) * (GAME_H / r.height);
+        const hit = this.chipAt(cx, cy);
+        if (hit >= 0) this.levelChoice = hit;
+      }
       if (this.state !== "running") this.tryStartFromButton();
     });
   }
 
   tryStartFromButton() {
-    if (this.state === "ready") this.startRun();
+    if (this.state === "ready") this.goToLevel(this.levelChoice);
     else if (this.state === "gameover" && performance.now() - this.gameOverAt > 600) this.startRun();
     else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.advanceLevel();
   }
@@ -2437,10 +2478,25 @@ class Game {
    * run. Shows a brief loading line because a new setting means new files.
    */
   advanceLevel() {
+    if (levelIndex + 1 >= LEVELS.length) {
+      this.resetProgress();
+      this.prefetchQueued = false;
+      this.startRun();
+      return;
+    }
+    this.goToLevel(levelIndex + 1);
+  }
+
+  /* Switches setting and starts a run there, loading that theme's art
+   * first if it is not the one already in memory. Used both by finishing
+   * a level and by picking one on the intro screen.
+   */
+  goToLevel(index) {
     this.resetProgress(); // a new setting starts from its own beginning
     this.prefetchQueued = false; // so the level after this one gets queued too
-    if (levelIndex + 1 >= LEVELS.length) { this.startRun(); return; }
-    levelIndex += 1;
+    if (index === levelIndex) { this.startRun(); return; }
+    const previous = levelIndex;
+    levelIndex = index;
     THEME = THEMES[LEVELS[levelIndex].theme];
     this.state = "loading";
     loadAssets()
@@ -2451,7 +2507,7 @@ class Game {
       })
       .catch((err) => {
         console.error(err);
-        levelIndex -= 1; // could not load the next setting; stay put
+        levelIndex = previous; // could not load it; stay where we were
         THEME = THEMES[LEVELS[levelIndex].theme];
         this.startRun();
       });
@@ -2513,6 +2569,11 @@ class Game {
     // Finishing the last level ends the run, so the score is final there.
     // Otherwise the run carries on into the next setting and is banked
     // when it eventually ends.
+    if (LEVELS[levelIndex + 1] && levelIndex + 1 > this.furthest) {
+      this.furthest = levelIndex + 1;
+      writeFurthest(this.furthest);
+      this.levelChoice = this.furthest;
+    }
     if (!LEVELS[levelIndex + 1]) this.finishRunScore();
     else if (this.score > this.hiScore) this.hiScore = this.score;
   }
@@ -3048,6 +3109,53 @@ class Game {
   }
 
   // Start-screen controls panel: one row per key, on a soft dark panel.
+  /* Settings unlocked so far, as tappable chips. Only appears once there
+   * is a choice to make - a lone chip would just be furniture.
+   */
+  drawLevelPicker(ctx) {
+    this.levelChips = [];
+    if (this.furthest < 1) return;
+
+    const count = this.furthest + 1;
+    const chipH = 26;
+    const gap = 10;
+    const y = 246;
+    ctx.save();
+    ctx.font = "bold 13px 'Courier New', Courier, monospace";
+    const widths = [];
+    for (let i = 0; i < count; i++) {
+      widths.push(ctx.measureText(THEMES[LEVELS[i].theme].label.toUpperCase()).width + 26);
+    }
+    const total = widths.reduce((a, b) => a + b, 0) + gap * (count - 1);
+    let x = GAME_W / 2 - total / 2;
+
+    for (let i = 0; i < count; i++) {
+      const w = widths[i];
+      const on = i === this.levelChoice;
+      roundRectPath(ctx, x, y - chipH / 2, w, chipH, 7);
+      ctx.fillStyle = on ? "rgba(255, 224, 138, 0.95)" : "rgba(20, 32, 18, 0.62)";
+      ctx.fill();
+      ctx.strokeStyle = on ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.45)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = on ? "#17241b" : "rgba(255, 255, 255, 0.92)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(THEMES[LEVELS[i].theme].label.toUpperCase(), x + w / 2, y + 1);
+      this.levelChips.push({ x, y: y - chipH / 2, w, h: chipH, index: i });
+      x += w + gap;
+    }
+    ctx.restore();
+  }
+
+  // Which chip, if any, a tap landed on. Canvas coordinates.
+  chipAt(cx, cy) {
+    for (const c of this.levelChips) {
+      if (cx >= c.x && cx <= c.x + c.w && cy >= c.y && cy <= c.y + c.h) return c.index;
+    }
+    return -1;
+  }
+
   drawControlsPanel() {
     const { ctx } = this;
     const rows = [
@@ -3102,6 +3210,7 @@ class Game {
     ctx.restore();
 
     this.drawControlsPanel();
+    this.drawLevelPicker(ctx);
 
     if (this.blinkTime % 1 < 0.65) {
       ctx.save();
@@ -3111,8 +3220,13 @@ class Game {
       ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
       ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
       ctx.lineWidth = 4;
-      ctx.strokeText("Press ENTER or tap to start", GAME_W / 2, 281);
-      ctx.fillText("Press ENTER or tap to start", GAME_W / 2, 281);
+      // When there is a choice of setting, say so rather than leaving the
+      // chips looking like decoration.
+      const prompt = this.furthest > 0
+        ? "Tap a level, or press ENTER to start"
+        : "Press ENTER or tap to start";
+      ctx.strokeText(prompt, GAME_W / 2, 281);
+      ctx.fillText(prompt, GAME_W / 2, 281);
       ctx.restore();
     }
   }
