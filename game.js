@@ -1029,6 +1029,19 @@ class Sound {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
       this.ctx = new Ctx();
+      /* iOS treats Web Audio as "ambient" by default, which the hardware
+       * silent switch mutes - but only on the built-in speaker, not over
+       * Bluetooth. That is why a phone on silent plays the music to
+       * headphones or hearing aids and nothing through its own speaker.
+       * Declaring it as playback audio opts out of the switch. Needs
+       * Safari 16.4+; on older phones the silent switch still wins, which
+       * is the expected behaviour rather than a fault.
+       */
+      try {
+        if (navigator.audioSession) navigator.audioSession.type = "playback";
+      } catch (e) {
+        /* not supported; the silent switch keeps control */
+      }
       this.master = this.ctx.createGain();
       this.master.gain.value = MUSIC.volume;
       this.master.connect(this.ctx.destination);
