@@ -360,6 +360,14 @@ function jumpArc(speed) {
 }
 
 const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
+
+/* Scoring. Distance survived is the bulk of it and carries across levels,
+ * so a run that reaches the woodland scores what it earned in the field
+ * plus whatever it adds. Acorns and dogs top it up without overshadowing
+ * how far you got: a good level is 3000 from distance, against maybe 500
+ * from acorns and 500 from dogs.
+ */
+const SCORING = { acorn: 25, dog: 100 };
 function levelGoal() { return LEVELS[levelIndex].goal; }
 
 /* Finishing a level: the spawners stop, the fox's burrow scrolls in, and
@@ -1232,9 +1240,9 @@ function scoreQualifies(score, list) {
   return score > list[list.length - 1].score;
 }
 
-function recordScore(name, score, level) {
+function recordScore(name, score) {
   const list = readScores();
-  list.push({ name: name.slice(0, NAME_MAX) || "FOX", score, level });
+  list.push({ name: name.slice(0, NAME_MAX) || "FOX", score });
   list.sort((a, b) => b.score - a.score);
   const kept = list.slice(0, SCORE_SLOTS);
   writeScores(kept);
@@ -2282,7 +2290,10 @@ class Game {
     this.shots = [];
     this.throwCooldown = 0;
     this.distance = 0;
-    this.score = 0;
+    this.score = 0;   // distance score WITHIN the current level
+    this.carried = 0; // everything banked from levels already finished
+    this.bonus = 0;   // acorns and dogs this level
+    this.popups = [];
     this.checkpointFlash = 0;
     this.resetProgress(); // banked stages live only as long as the page
     this.hiScore = bestScore();
@@ -2433,7 +2444,7 @@ class Game {
   }
 
   tryStartFromButton() {
-    if (this.state === "ready") this.goToLevel(this.levelChoice);
+    if (this.state === "ready") this.beginNewRun(this.levelChoice);
     else if (this.state === "gameover" && performance.now() - this.gameOverAt > 600) this.startRun();
     else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.advanceLevel();
   }
@@ -2458,7 +2469,30 @@ class Game {
 
   // Wipes banked stages: a new level, or a deliberate fresh start.
   resetProgress() {
-    this.checkpoint = { stage: 0, score: 0, acorns: 0 };
+    this.checkpoint = { stage: 0, score: 0, acorns: 0, bonus: 0 };
+  }
+
+  /* Bonus points, with the figure floating up from wherever it was
+   * earned - otherwise the score just jumps and nobody knows why.
+   */
+  awardBonus(points, x, y) {
+    this.bonus += points;
+    this.popups.push({ x, y, text: "+" + points, life: 0.9 });
+  }
+
+  // What the player sees and what goes in the table: the whole run.
+  get totalScore() {
+    return this.carried + this.score + this.bonus;
+  }
+
+  /* A brand new run from the intro, as opposed to another go from a
+   * checkpoint (which keeps what the run has earned so far).
+   */
+  beginNewRun(levelChoice) {
+    this.carried = 0;
+    this.bonus = 0;
+    this.resetProgress();
+    this.goToLevel(levelChoice);
   }
 
   startRun() {
@@ -2473,7 +2507,9 @@ class Game {
     this.pendingRelease = null;
     // Resume from the furthest stage banked this session.
     this.score = this.checkpoint.score;
+    this.bonus = this.checkpoint.bonus || 0;
     this.distance = this.score * SCORE_DISTANCE_DIVISOR;
+    this.popups = [];
     this.acornCount = 0; // acorns are lost on death, wherever you restart
     this.dogsStopped = 0;
     this.acornsCollected = 0;
@@ -2616,8 +2652,17 @@ class Game {
       writeFurthest(this.furthest);
       this.levelChoice = this.furthest;
     }
-    if (!LEVELS[levelIndex + 1]) this.finishRunScore();
-    else if (this.score > this.hiScore) this.hiScore = this.score;
+    if (!LEVELS[levelIndex + 1]) {
+      this.finishRunScore(); // last level: the run is over, so this is final
+    } else {
+      // Fold the finished level into the total; the next one starts its
+      // own distance count at zero, so nothing is counted twice.
+      this.carried += levelGoal() + this.bonus;
+      this.bonus = 0;
+      this.score = 0; // folded into carried; counting it twice would inflate
+
+      if (this.totalScore > this.hiScore) this.hiScore = this.totalScore;
+    }
   }
 
   /* A run has ended for good. Bank the score, and if it earned a place in
@@ -2626,9 +2671,10 @@ class Game {
   finishRunScore() {
     this.scores = readScores();
     this.pendingScore = null;
-    if (this.score > this.hiScore) this.hiScore = this.score;
-    if (scoreQualifies(this.score, this.scores)) {
-      this.pendingScore = { score: this.score, level: THEME.label };
+    const total = this.totalScore;
+    if (total > this.hiScore) this.hiScore = total;
+    if (scoreQualifies(total, this.scores)) {
+      this.pendingScore = { score: total };
       this.openNameEntry();
     }
   }
@@ -2653,7 +2699,7 @@ class Game {
     if (!this.pendingScore) return;
     const clean = name.trim().toUpperCase().slice(0, NAME_MAX) || "FOX";
     writeLastName(clean);
-    this.scores = recordScore(clean, this.pendingScore.score, this.pendingScore.level);
+    this.scores = recordScore(clean, this.pendingScore.score);
     this.hiScore = bestScore();
     this.justSet = clean + "|" + this.pendingScore.score;
     this.pendingScore = null;
@@ -2699,6 +2745,9 @@ class Game {
     this.distance += this.speed * dt;
     this.scroll += this.speed * dt;
     this.score = Math.floor(this.distance / SCORE_DISTANCE_DIVISOR);
+    // The goal is the level's ceiling: the run-in to the burrow should
+    // not quietly add a few hundred more.
+    if (this.finish) this.score = Math.min(this.score, levelGoal());
     sound.setProgress(this.score / levelGoal()); // tempo climbs with progress
     // Bank a stage as it is passed.
     const stage = Math.min(
@@ -2710,6 +2759,7 @@ class Game {
         stage,
         score: Math.round((levelGoal() * stage) / PROGRESS.stages),
         acorns: this.acornCount,
+        bonus: this.bonus,
       };
       this.checkpointFlash = 1.6;
       sound.sfx("checkpoint");
@@ -2755,6 +2805,8 @@ class Game {
     this.obstacles = this.obstacles.filter((ob) => !ob.isOffscreen());
     for (const ac of this.acorns) ac.update(dt, this.speed);
     this.acorns = this.acorns.filter((ac) => !ac.isOffscreen() && !ac.collected);
+    for (const p of this.popups) { p.life -= dt; p.y -= 34 * dt; p.x -= this.speed * dt; }
+    this.popups = this.popups.filter((p) => p.life > 0);
     for (const shot of this.shots) shot.update(dt, this.groundY);
     this.shots = this.shots.filter((s) => !s.dead);
     this.birdSpawner.update(
@@ -2771,6 +2823,7 @@ class Game {
           shot.dead = true;
           d.stun();
           this.dogsStopped++;
+          this.awardBonus(SCORING.dog, d.x + d.w / 2, d.y);
           sound.sfx("stun");
           break;
         }
@@ -2811,6 +2864,7 @@ class Game {
           ac.collected = true;
           this.acornCount++;
           this.acornsCollected++;
+          this.awardBonus(SCORING.acorn, ac.x + ac.w / 2, ac.y);
           sound.sfx("collect");
         }
       }
@@ -3082,9 +3136,7 @@ class Game {
       ctx.strokeText(`${i + 1}. ${entry.name}`, left + 18, y);
       ctx.fillText(`${i + 1}. ${entry.name}`, left + 18, y);
       ctx.textAlign = "right";
-      // Full setting name: "FIEL" read as a truncation bug, not a label.
-      const tail = String(entry.score).padStart(5, "0") +
-        (entry.level ? "  " + entry.level.toUpperCase() : "");
+      const tail = String(entry.score).padStart(5, "0");
       ctx.strokeText(tail, left + panelW - 18, y);
       ctx.fillText(tail, left + panelW - 18, y);
     });
@@ -3100,7 +3152,7 @@ class Game {
     ctx.textAlign = "right";
 
     const pad = (n) => String(n).padStart(5, "0");
-    const scoreText = `SCORE ${pad(this.score)}`;
+    const scoreText = `SCORE ${pad(this.totalScore)}`;
     const hiText = `HI ${pad(this.hiScore)}`;
     // Right margin leaves room for the fullscreen button overlay.
     ctx.fillText(scoreText, GAME_W - 70, 16);
@@ -3357,8 +3409,26 @@ class Game {
     if (this.finish && this.finish.holeX !== null) this.drawFoxhole(ctx);
     if (!diving) this.fox.draw(ctx, this.state);
     for (const shot of this.shots) shot.draw(ctx);
+    this.drawPopups(ctx);
     if (this.debugHitboxes) this.drawHitboxes();
     this.drawHud();
+  }
+
+  drawPopups(ctx) {
+    if (!this.popups.length) return;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 16px 'Courier New', Courier, monospace";
+    ctx.lineWidth = 4;
+    for (const p of this.popups) {
+      ctx.globalAlpha = Math.min(1, p.life / 0.35);
+      ctx.strokeStyle = "rgba(30, 45, 25, 0.9)";
+      ctx.strokeText(p.text, p.x, p.y);
+      ctx.fillStyle = "#ffe08a";
+      ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.restore();
   }
 
   // Pause panel over the frozen scene.
@@ -3467,7 +3537,7 @@ class Game {
     outlined("GAME OVER", GAME_W / 2, 96, "bold 42px 'Courier New', Courier, monospace", 6);
 
     const pad = (n) => String(n).padStart(5, "0");
-    outlined(`SCORE ${pad(this.score)}`, GAME_W / 2, 128,
+    outlined(`SCORE ${pad(this.totalScore)}`, GAME_W / 2, 128,
       "bold 18px 'Courier New', Courier, monospace");
 
     this.drawScoreTable(ctx, outlined);
