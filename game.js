@@ -2291,8 +2291,9 @@ class Game {
     this.throwCooldown = 0;
     this.distance = 0;
     this.score = 0;   // distance score WITHIN the current level
-    this.carried = 0; // everything banked from levels already finished
-    this.bonus = 0;   // acorns and dogs this level
+    this.carried = 0;       // banked from levels finished in this life
+    this.bonus = 0;         // acorns and dogs this level
+    this.runStartScore = 0; // level score where this life began
     this.popups = [];
     this.checkpointFlash = 0;
     this.resetProgress(); // banked stages live only as long as the page
@@ -2469,7 +2470,7 @@ class Game {
 
   // Wipes banked stages: a new level, or a deliberate fresh start.
   resetProgress() {
-    this.checkpoint = { stage: 0, score: 0, acorns: 0, bonus: 0 };
+    this.checkpoint = { stage: 0, score: 0 };
   }
 
   /* Bonus points, with the figure floating up from wherever it was
@@ -2481,21 +2482,22 @@ class Game {
   }
 
   // What the player sees and what goes in the table: the whole run.
+  /* Distance counts from where THIS life began, not from the start of
+   * the level: a checkpoint hands back the position, so difficulty and
+   * the progress bar are right, but not the score that died with the
+   * previous life.
+   */
   get totalScore() {
-    return this.carried + this.score + this.bonus;
+    return this.carried + (this.score - this.runStartScore) + this.bonus;
   }
 
-  /* A brand new run from the intro, as opposed to another go from a
-   * checkpoint (which keeps what the run has earned so far).
-   */
+  // A brand new run from the intro, at whichever setting was picked.
   beginNewRun(levelChoice) {
-    this.carried = 0;
-    this.bonus = 0;
     this.resetProgress();
     this.goToLevel(levelChoice);
   }
 
-  startRun() {
+  startRun(keepTotal) {
     this.state = "running";
     this.finish = null;
     sound.startMusic(THEME.music);
@@ -2507,7 +2509,12 @@ class Game {
     this.pendingRelease = null;
     // Resume from the furthest stage banked this session.
     this.score = this.checkpoint.score;
-    this.bonus = this.checkpoint.bonus || 0;
+    // Dying ends a score for good. A checkpoint only says where to rejoin.
+    if (!keepTotal) {
+      this.carried = 0;
+      this.bonus = 0;
+    }
+    this.runStartScore = this.score;
     this.distance = this.score * SCORE_DISTANCE_DIVISOR;
     this.popups = [];
     this.acornCount = 0; // acorns are lost on death, wherever you restart
@@ -2534,17 +2541,17 @@ class Game {
       this.startRun();
       return;
     }
-    this.goToLevel(levelIndex + 1);
+    this.goToLevel(levelIndex + 1, true); // same life, so the total carries
   }
 
   /* Switches setting and starts a run there, loading that theme's art
    * first if it is not the one already in memory. Used both by finishing
    * a level and by picking one on the intro screen.
    */
-  goToLevel(index) {
+  goToLevel(index, keepTotal) {
     this.resetProgress(); // a new setting starts from its own beginning
     this.prefetchQueued = false; // so the level after this one gets queued too
-    if (index === levelIndex) { this.startRun(); return; }
+    if (index === levelIndex) { this.startRun(keepTotal); return; }
     const previous = levelIndex;
     levelIndex = index;
     THEME = THEMES[LEVELS[levelIndex].theme];
@@ -2553,13 +2560,13 @@ class Game {
       .then((images) => {
         this.images = images;
         this.fox.images = images;
-        this.startRun();
+        this.startRun(keepTotal);
       })
       .catch((err) => {
         console.error(err);
         levelIndex = previous; // could not load it; stay where we were
         THEME = THEMES[LEVELS[levelIndex].theme];
-        this.startRun();
+        this.startRun(keepTotal);
       });
   }
 
@@ -2657,9 +2664,12 @@ class Game {
     } else {
       // Fold the finished level into the total; the next one starts its
       // own distance count at zero, so nothing is counted twice.
-      this.carried += levelGoal() + this.bonus;
+      // Only what this life actually covered: rejoining at a checkpoint
+      // two thirds in earns the last third, not the whole level.
+      this.carried += (this.score - this.runStartScore) + this.bonus;
       this.bonus = 0;
-      this.score = 0; // folded into carried; counting it twice would inflate
+      this.score = 0;
+      this.runStartScore = 0;
 
       if (this.totalScore > this.hiScore) this.hiScore = this.totalScore;
     }
@@ -2758,8 +2768,6 @@ class Game {
       this.checkpoint = {
         stage,
         score: Math.round((levelGoal() * stage) / PROGRESS.stages),
-        acorns: this.acornCount,
-        bonus: this.bonus,
       };
       this.checkpointFlash = 1.6;
       sound.sfx("checkpoint");
