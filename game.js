@@ -102,6 +102,7 @@ function makeTheme(dir, label, opts) {
     cast: opts.cast, // which creature plays each role, for reference
     dog: opts.dog,   // per-level dog pacing, read via dogSetting()
     music: opts.music, // this level's looping melody
+    bands: opts.bands, // parallax bands, if this setting wants its own
     obstacles: {
       hedgehog: q("obstacles", "hedgehog", "hedgehog.png"),
       rabbit: q("obstacles", "rabbit", "rabbit.png"),
@@ -136,6 +137,7 @@ function makeTheme(dir, label, opts) {
     scenery: {
       sky: q("scenery", "sky", "sky.png"),
       hillsFar: p("scenery", "hills_far.png"),
+      clouds: `assets/themes/${dir}/scenery/clouds.png`, // optional; absent is fine
       trees: qList("scenery", "trees", seq(3, (i) => `tree_${pad2(i + 1)}.png`)),
       bushes: ["bush_strip.png", "bush_01.png", "bush_02.png", "bush_03.png"]
         .map((f) => p("scenery", f, "bushes")),
@@ -205,11 +207,11 @@ const THEMES = {
       bass: [-12, null, null, null, -5, null, null, null,
              -10, null, null, null, -5, null, null, null],
     },
-    cast: { hedgehog: "ferret", rabbit: "badger", rock: "otter",
+    cast: { hedgehog: "ferret", rabbit: "bear", rock: "otter",
             log: "mossy log", stump: "hollow log",
             chaser: "hunting dog", flyer: "owl", collectible: "acorn" },
     files: {
-      obstacles: { hedgehog: "ferret.png", rabbit: "badger.png", rock: "otter.png",
+      obstacles: { hedgehog: "ferret.png", rabbit: "bear.png", rock: "otter.png",
                    log: "log_mossy.png", stump: "log_hollow.png" },
       flyer: { fly: seq(6, (i) => `owl_fly_${pad2(i + 1)}.png`) },
       scenery: { sky: "woodland_background.png",
@@ -217,7 +219,7 @@ const THEMES = {
     },
     reactions: {
       hedgehog: ["ferret_1.png", "ferret_2.png"],
-      rabbit: ["badger_1.png", "badger_2.png", "badger_3.png", "badger_4.png"],
+      rabbit: ["bear_1.png", "bear_2.png", "bear_3.png", "bear_4.png"],
       rock: ["otter_1.png", "otter_2.png"],
     },
     sprites: {
@@ -233,28 +235,31 @@ const THEMES = {
           { trim: { sx: 31, sy: 196, sw: 450, sh: 119 }, wScale: 0.98 },
         ],
       },
-      /* The badger rears onto its hind legs to try to catch the fox,
-       * through four poses: on all fours, half up, upright, then reaching.
+      /* The bear sleeps across the path and wakes as the fox bears down,
+       * through four poses, rearing to swipe at him.
        * It grows 36px to 66px - the tallest thing in either level, but
        * still under the 105px jump apex, so a tap alone clears it.
        */
       rabbit: {
-        // Held back from the opening: a reared badger is the toughest
-        // single obstacle in either level, so the ferret carries the
-        // early game the way the hedgehog does in the field.
-        h: 36, rearHeight: 66, availableFrom: 500, sink: 6,
+        /* Held back until 700: a reared bear is the toughest single jump
+         * in the game, and at the opening speed its timing window is
+         * 0.29s against 0.34-0.46s for everything else. Arriving a little
+         * later means it never shows up at the tightest moment.
+         */
+        h: 38, rearHeight: 70, availableFrom: 700, sink: 6,
         // Rears later than the default 520px, so it reads as reacting to
         // the fox rather than standing up long before he arrives. Still
         // clears the rise (0.28s) well before the latest viable jump.
         rearNotice: 400,
         weight: 2.2,
-        trim: { sx: 31, sy: 102, sw: 449, sh: 213 },
+        trim: { sx: 45, sy: 145, sw: 422, sh: 192 },
         hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
+        // Dozing, sitting up, onto all fours, then rearing to swipe.
         poses: [
-          { trim: { sx: 31, sy: 102, sw: 449, sh: 213 } },
-          { trim: { sx: 115, sy: 15, sw: 281, sh: 300 } },
-          { trim: { sx: 156, sy: 15, sw: 199, sh: 300 } },
-          { trim: { sx: 137, sy: 15, sw: 237, sh: 300 } },
+          { trim: { sx: 45, sy: 145, sw: 422, sh: 192 } },
+          { trim: { sx: 65, sy: 76, sw: 382, sh: 261 } },
+          { trim: { sx: 59, sy: 3, sw: 393, sh: 334 } },
+          { trim: { sx: 117, sy: 3, sw: 278, sh: 334 } },
         ],
       },
       // The otter takes the rock's slot, and cowers like the ferret.
@@ -281,6 +286,35 @@ const THEMES = {
       flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 } },
     },
   }),
+  /* Level 3, still being drawn. The path stays flat - a real gradient
+   * would run the fox off the top of the screen within seconds - so the
+   * climb is told by the scenery instead: the peaks sink toward the
+   * horizon and the cloud band, overhead at the start, ends up below the
+   * path by the summit. Everything not yet drawn borrows the woodland.
+   */
+  mountain: makeTheme("mountain", "Mountain", {
+    fallback: "woodland",
+    inherits: ["ground", "chaser", "collectible", "pages", "bushes",
+               "obstacles.boulder", "flyer", "reactions"],
+    cast: { hedgehog: "marmot", rabbit: "ram", rock: "boulder",
+            log: "fallen pine", stump: "rock spire",
+            chaser: "hunting dog", flyer: "eagle", collectible: "acorn" },
+    dog: { availableFrom: 300, gapScale: 0.85 },
+    /* Peaks drop 70px and the clouds a full 210px across the level, so
+     * by the summit the fox is running above the weather.
+     */
+    bands: [
+      { img: "hillsFar", h: 150, parallax: 0.08, climb: 70 },
+      { img: "clouds", h: 90, parallax: 0.16, climb: 210 },
+    ],
+    // Thinner and higher than the woodland: D major pentatonic.
+    music: {
+      root: 74, // D5
+      lead: [0, 4, 7, 9, 7, 4, 2, 4, 0, 7, 9, 12, 9, 7, 4, null],
+      bass: [-12, null, null, null, -5, null, null, null,
+             -12, null, null, null, -3, null, null, null],
+    },
+  }),
 };
 
 /* The levels, in order. Each finishes at its goal score, then the fox
@@ -289,6 +323,9 @@ const THEMES = {
 const LEVELS = [
   { theme: "field", goal: 3000 },
   { theme: "woodland", goal: 3000 },
+  // Level 3 joins the list once its artwork is in; until then it would
+  // just be the woodland with a different sky.
+  // { theme: "mountain", goal: 3000 },
 ];
 let levelIndex = 0;
 let THEME = THEMES[LEVELS[levelIndex].theme];
@@ -985,6 +1022,7 @@ function loadAssets() {
   }
   // Optional art: absent files simply leave the key undefined.
   jobs.push(loadImage(THEME.foxhole).then((img) => { images.foxhole = img; }, () => {}));
+  jobs.push(loadImage(THEME.scenery.clouds).then((img) => { images.clouds = img; }, () => {}));
   jobs.push(loadImage(THEME.levelCompleteBg).then((img) => { images.levelCompleteBg = img; }, () => {}));
   return Promise.all(jobs).then(() => images);
 }
@@ -2259,6 +2297,12 @@ const DECOR_STRIPS = [
 // Full-width parallax band behind the decor, bottom-anchored just behind
 // the grass lip. Mirrored tiling hides its non-seamless edges. (The dense
 // bg_trees_mid band was dropped — hills alone are easier on the eye.)
+/* Full-width parallax bands behind the decor. `climb` slides a band DOWN
+ * over the course of a level, which is how a mountain reads as being
+ * climbed without the ground ever leaving the flat: the peaks sink
+ * toward the horizon and the cloud band, which starts overhead, ends up
+ * below the path. Themes override this list.
+ */
 const BG_BANDS = [
   { img: "hillsFar", h: 115, parallax: 0.1 },
 ];
@@ -2956,8 +3000,12 @@ class Game {
 
     // Distant hills and mid treeline bands, tucked in behind the grass.
     const bandBottom = this.groundY + 4;
-    for (const band of BG_BANDS) {
-      this.drawTiledLayer(images[band.img], band.h, bandBottom, this.scroll * band.parallax, true);
+    const climbed = Math.min(1, this.score / levelGoal()); // how far up we are
+    for (const band of (THEME.bands || BG_BANDS)) {
+      if (band.img === "clouds" && !images.clouds) continue; // theme has none
+      const drop = (band.climb || 0) * climbed;
+      this.drawTiledLayer(images[band.img], band.h, bandBottom + drop,
+        this.scroll * band.parallax, true);
     }
 
     this.drawDecorStrips();

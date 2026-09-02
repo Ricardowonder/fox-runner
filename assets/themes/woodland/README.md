@@ -6,6 +6,8 @@ Cast, and the level-1 role each one plays in code:
 |---|---|---|
 | `obstacles/ferret.png` | hedgehog | crouches flat (`ferret_1/2`) |
 | `obstacles/badger.png` | rabbit | **rears up** through `badger_1..4` |
+| `obstacles/bear.png` | heavy obstacle | sleeps, wakes, then rears up through `bear_1..4`; larger than badger |
+| `obstacles/skunk.png` | reactive obstacle | faces left, notices fox, turns, then sprays through `skunk_1..5` |
 | `obstacles/otter.png` | rock | crouches flat (`otter_1/2`) |
 | `obstacles/log_mossy.png` | log | — |
 | `obstacles/log_hollow.png` | stump | — |
@@ -13,6 +15,7 @@ Cast, and the level-1 role each one plays in code:
 | `scenery/woodland_background.png` | sky | painted backdrop |
 | `scenery/hills_far.png` | hillsFar | transparent treeline band |
 | `scenery/tree_oak/birch/pine.png` | trees | parallax trees |
+| `reactions/skunk_stink_cloud.png` | effect | standalone stink cloud if the spray should be rendered separately |
 
 Roles keep their level-1 names so all the difficulty tuning carries over.
 Filenames are mapped in `THEMES.woodland.files` in game.js.
