@@ -2295,6 +2295,7 @@ class Game {
     this.bonus = 0;         // acorns and dogs this level
     this.runStartScore = 0; // level score where this life began
     this.popups = [];
+    this.uiButtons = [];
     this.checkpointFlash = 0;
     this.resetProgress(); // banked stages live only as long as the page
     this.hiScore = bestScore();
@@ -2345,7 +2346,16 @@ class Game {
         else if (this.state !== "running" && this.state !== "loading") this.startRun();
       } else if (e.code === "Escape" || e.code === "KeyP") {
         e.preventDefault();
-        if (!e.repeat) this.togglePause();
+        if (e.repeat) return;
+        if (this.state === "gameover") this.exitToMenu();
+        else this.togglePause();
+      } else if (e.code === "KeyR") {
+        e.preventDefault();
+        if (this.state === "gameover" && !e.repeat &&
+            performance.now() - this.gameOverAt > 600) {
+          this.resetProgress();
+          this.startRun();
+        }
       } else if (e.code === "Space") {
         e.preventDefault();
         if (this.state === "paused" && !e.repeat) { this.resumeRun(); return; }
@@ -2430,6 +2440,19 @@ class Game {
     this.canvas.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       if (this.nameOpen) return;
+      const r = this.canvas.getBoundingClientRect();
+      if (r.width && this.uiButtons.length) {
+        const bx = (e.clientX - r.left) * (GAME_W / r.width);
+        const by = (e.clientY - r.top) * (GAME_H / r.height);
+        const action = this.buttonAt(bx, by);
+        if (action) {
+          if (action === "continue" || action === "restart") {
+            if (performance.now() - this.gameOverAt < 600) return; // mis-tap guard
+          }
+          this.runUiAction(action);
+          return;
+        }
+      }
       if (this.state === "running") { this.pauseRun(); return; }
       if (this.state === "paused") { this.resumeRun(); return; }
       if (this.state === "ready" && this.levelChips.length) {
@@ -3118,27 +3141,27 @@ class Game {
     const rows = this.scores || [];
     if (!rows.length) return;
 
-    const top = 168;
-    const rowH = 19;
-    const panelW = 380;
+    const top = 152;
+    const rowH = 18;
+    const panelW = 340;
     const left = GAME_W / 2 - panelW / 2;
 
     ctx.save();
-    roundRectPath(ctx, left, top - 24, panelW, rows.length * rowH + 30, 10);
+    roundRectPath(ctx, left, top - 22, panelW, rows.length * rowH + 28, 10);
     ctx.fillStyle = "rgba(20, 32, 18, 0.62)";
     ctx.fill();
 
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
     ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
-    outlined("BEST RUNS", GAME_W / 2, top - 11,
-      "bold 12px 'Courier New', Courier, monospace", 3);
+    outlined("BEST RUNS", GAME_W / 2, top - 10,
+      "bold 11px 'Courier New', Courier, monospace", 3);
 
     rows.forEach((entry, i) => {
       const y = top + 8 + i * rowH;
       const mine = this.justSet === entry.name + "|" + entry.score;
       ctx.fillStyle = mine ? "#ffe08a" : "rgba(255, 255, 255, 0.95)";
-      ctx.font = "bold 14px 'Courier New', Courier, monospace";
+      ctx.font = "bold 13px 'Courier New', Courier, monospace";
       ctx.lineWidth = 3;
       ctx.textAlign = "left";
       ctx.strokeText(`${i + 1}. ${entry.name}`, left + 18, y);
@@ -3349,6 +3372,7 @@ class Game {
   draw() {
     const { ctx } = this;
     ctx.clearRect(0, 0, GAME_W, GAME_H);
+    this.uiButtons = [];
 
     if (this.state === "ready") {
       this.drawIntro();
@@ -3439,6 +3463,71 @@ class Game {
     ctx.restore();
   }
 
+  /* On-canvas buttons. Rebuilt each frame for whichever screen is up and
+   * hit-tested on tap, so the pause and game-over screens share one path
+   * and work identically with a mouse or a finger.
+   */
+  drawButtonRow(ctx, buttons, y) {
+    ctx.save();
+    ctx.font = "bold 15px 'Courier New', Courier, monospace";
+    const h = 32;
+    const pad = 22;
+    const gap = 12;
+    const widths = buttons.map((b) => ctx.measureText(b.label).width + pad * 2);
+    const total = widths.reduce((a, b) => a + b, 0) + gap * (buttons.length - 1);
+    let x = GAME_W / 2 - total / 2;
+
+    buttons.forEach((b, i) => {
+      const w = widths[i];
+      roundRectPath(ctx, x, y - h / 2, w, h, 8);
+      ctx.fillStyle = b.primary ? "rgba(255, 224, 138, 0.95)" : "rgba(20, 32, 18, 0.78)";
+      ctx.fill();
+      ctx.strokeStyle = b.primary ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.55)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = b.primary ? "#17241b" : "rgba(255, 255, 255, 0.95)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(b.label, x + w / 2, y + 1);
+      this.uiButtons.push({ x, y: y - h / 2, w, h, action: b.action });
+      x += w + gap;
+    });
+    ctx.restore();
+  }
+
+  buttonAt(cx, cy) {
+    for (const b of this.uiButtons) {
+      if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) return b.action;
+    }
+    return null;
+  }
+
+  runUiAction(action) {
+    if (action === "resume") this.resumeRun();
+    else if (action === "exit") this.exitToMenu();
+    else if (action === "continue") this.startRun();
+    else if (action === "restart") { this.resetProgress(); this.startRun(); }
+  }
+
+  // Back to the title screen. The run is over either way, so the banked
+  // stages go with it: coming back in should be a clean start.
+  exitToMenu() {
+    sound.stopMusic();
+    this.resetProgress();
+    this.carried = 0;
+    this.bonus = 0;
+    this.state = "ready";
+    this.finish = null;
+    this.obstacles = [];
+    this.acorns = [];
+    this.birds = [];
+    this.shots = [];
+    this.popups = [];
+    this.dogDirector.reset();
+    this.fox.reset();
+    this.levelChoice = Math.min(levelIndex, this.furthest);
+  }
+
   // Pause panel over the frozen scene.
   drawPaused() {
     const { ctx } = this;
@@ -3455,12 +3544,12 @@ class Game {
       ctx.fillStyle = fill || "rgba(255, 255, 255, 0.97)";
       ctx.fillText(text, GAME_W / 2, y);
     };
-    line("PAUSED", "bold 42px 'Courier New', Courier, monospace", 128);
-    if (this.blinkTime % 1 < 0.68) {
-      line("Tap or press SPACE to keep going",
-           "bold 18px 'Courier New', Courier, monospace", 174, "#ffe08a");
-    }
+    line("PAUSED", "bold 42px 'Courier New', Courier, monospace", 116);
     ctx.restore();
+    this.drawButtonRow(ctx, [
+      { label: "KEEP GOING", action: "resume", primary: true },
+      { label: "EXIT GAME", action: "exit" },
+    ], 172);
   }
 
   /* Level-complete page: the woodland scene held still with the fox
@@ -3542,19 +3631,24 @@ class Game {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
     ctx.strokeStyle = "rgba(40, 55, 30, 0.85)";
-    outlined("GAME OVER", GAME_W / 2, 96, "bold 42px 'Courier New', Courier, monospace", 6);
+    outlined("GAME OVER", GAME_W / 2, 84, "bold 40px 'Courier New', Courier, monospace", 6);
 
     const pad = (n) => String(n).padStart(5, "0");
-    outlined(`SCORE ${pad(this.totalScore)}`, GAME_W / 2, 128,
+    outlined(`SCORE ${pad(this.totalScore)}`, GAME_W / 2, 114,
       "bold 18px 'Courier New', Courier, monospace");
+    ctx.restore();
 
     this.drawScoreTable(ctx, outlined);
 
-    if (!this.nameOpen && this.blinkTime % 1 < 0.65) {
-      outlined("Press ENTER or tap to restart", GAME_W / 2, 288,
-        "bold 19px 'Courier New', Courier, monospace");
+    if (!this.nameOpen) {
+      const buttons = [{ label: "CONTINUE", action: "continue", primary: true }];
+      // Continuing rejoins at a banked stage; with none there is nothing
+      // to continue FROM, so offer the run again instead.
+      if (this.checkpoint.stage === 0) buttons[0].label = "PLAY AGAIN";
+      else buttons.push({ label: "RESTART", action: "restart" });
+      buttons.push({ label: "EXIT", action: "exit" });
+      this.drawButtonRow(ctx, buttons, 273);
     }
-    ctx.restore();
   }
 }
 
