@@ -32,6 +32,16 @@ The ledge is intended to replace the normal grass and dirt layers for this theme
 - `scenery/trees/tree_02.png` - bare weathered snag
 - `scenery/trees/tree_03.png` - stone cairn
 
+Everything that leans is drawn leaning RIGHT, the way the fox is running:
+the pines in `scenery/trees_mid.png` and the two bent trees above all
+arrived leaning left, which read as being blown back down the mountain
+rather than climbing it. They were mirrored in place (originals kept in
+`_source/mountain_raw/preflip_*`), and the treeline band is drawn with
+`mirror: false` - the alternate-tile flip that hides a seam was sending
+every second tree back the other way. The cairns are symmetrical and are
+left alone. The field and woodland trees are all upright, so neither was
+touched.
+
 ## Roles in the engine
 
 The engine's obstacle slots keep their level-one names, so the difficulty

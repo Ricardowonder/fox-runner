@@ -479,11 +479,16 @@ const THEMES = {
       // overhead for the first stage and gone below the path by the last.
       { img: "clouds", h: 78, parallax: 0.16, offset: -80, climb: 210,
         src: { srcY0: 109, srcY1: 341 } },
-      // Cropped to the treeline on all four sides: the bare margins left a
-      // gap of sky at every tile seam, and the bottom row is a ghost of
-      // half-transparent green.
-      { img: "treesMid", h: 52, parallax: 0.22,
-        src: { srcX0: 15, srcX1: 1181, srcY0: 300, srcY1: 597 } },
+      /* Cropped to the treeline on all four sides: the bare margins left a
+       * gap of sky at every tile seam, and the bottom row is a ghost of
+       * half-transparent green.
+       *
+       * Not mirrored. Every pine in this strip leans the same way, and
+       * flipping alternate tiles - which is only there to hide a seam -
+       * sent half of them leaning back down the mountain.
+       */
+      { img: "treesMid", h: 52, parallax: 0.22, mirror: false,
+        src: { srcX0: 19, srcX1: 1185, srcY0: 300, srcY1: 597 } },
     ],
     // Thinner and higher than the woodland: D major pentatonic.
     music: {
@@ -3278,7 +3283,7 @@ class Game {
       // overhead and end up below the path.
       const drop = (band.offset || 0) + (band.climb || 0) * climbed;
       this.drawTiledLayer(images[band.img], band.h, bandBottom + drop,
-        this.scroll * band.parallax, true, band.src);
+        this.scroll * band.parallax, band.mirror !== false, band.src);
     }
 
     this.drawDecorStrips();
