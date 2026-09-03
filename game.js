@@ -191,6 +191,10 @@ function makeTheme(dir, label, opts) {
      * own bands. A theme that says nothing uses the shared GROUND crops.
      */
     groundCrops: opts.groundCrops,
+    // Settings with gaps in the bank the fox can fall through. Only the
+    // river asks for this; everywhere else the ground is one strip and
+    // none of the crossing code runs at all.
+    river: !!opts.river,
   };
 }
 
@@ -530,6 +534,29 @@ const THEMES = {
              -12, null, -5, null, -17, null, -10, null],
     },
   }),
+  /* Level 4, still being drawn. The bank stops and starts here: `river`
+   * turns on the crossings, and the fox goes in the water if he runs out
+   * of bank. Everything borrows the field until its own artwork lands, so
+   * it can be played and tuned now - the shapes in the water are stand-ins
+   * drawn by the engine, not sprites.
+   */
+  river: makeTheme("river", "River", {
+    fallback: "field",
+    inherits: ["ground", "chaser", "collectible", "pages", "scenery.bushes",
+               "foxhole", "obstacles.boulder", "obstacles.sentry",
+               "obstacles.hedgehog", "obstacles.rabbit", "obstacles.rock",
+               "obstacles.log", "obstacles.stump", "flyer", "scenery.trees"],
+    river: true,
+    dog: { availableFrom: 400, gapScale: 1.0 },
+    cast: { chaser: "hunting dog", collectible: "acorn" },
+    // Low and lilting, in E minor pentatonic: slower water than mountain air.
+    music: {
+      root: 64, // E4
+      lead: [0, 3, 7, 3, 5, 3, 0, 3, 7, 10, 7, 5, 3, 5, 0, null],
+      bass: [-12, null, null, null, -5, null, null, null,
+             -12, null, null, null, -7, null, null, null],
+    },
+  }),
 };
 
 /* The levels, in order. Each finishes at its goal score, then the fox
@@ -539,6 +566,9 @@ const LEVELS = [
   { theme: "field", goal: 3000 },
   { theme: "woodland", goal: 3000 },
   { theme: "mountain", goal: 3000 },
+  // Level 4 joins once its artwork is in. The crossing mechanics work now
+  // and can be tried with ?test=1, but it is the field with holes in it.
+  // { theme: "river", goal: 3000 },
 ];
 let levelIndex = 0;
 let THEME = THEMES[LEVELS[levelIndex].theme];
@@ -614,6 +644,9 @@ const PHYSICS = {
   // tap would leave a young player unable to get over anything.
   holdGravityFactor: 0.40, // gravity multiplier while the button is held...
   holdTime: 0.25,          // ...for this long -> hold apex ~155px
+  // A moment of grace after running off the end of a bank. Young players
+  // step off an edge and only then think to jump.
+  coyoteTime: 0.10,
 };
 
 // Jump arc for a given scroll speed: constant apex, longer airtime when
@@ -630,6 +663,59 @@ function jumpArc(speed) {
     gravityDown: (2 * p.apex) / (fall * fall),
   };
 }
+
+/* How far the world travels while the fox's feet are clear of the ground.
+ * Everything about the river is sized from this rather than from fixed
+ * pixels, because a jump carries him barely half as far at the start of a
+ * level as it does at the end - a gap that is a fair hop at 215px/s is a
+ * stroll at 450, and one sized for 450 is impossible at 215.
+ */
+function jumpSpan(speed) {
+  const p = PHYSICS;
+  const t = (speed - p.slowSpeed) / (p.fastSpeed - p.slowSpeed);
+  const airtime = p.airtimeSlow + (p.airtimeFast - p.airtimeSlow) * Math.min(Math.max(t, 0), 1);
+  return speed * airtime;
+}
+
+// The widest hole he could clear at this speed, with his own width taken
+// off: he has to be past it entirely, not just over the middle of it.
+function maxClearableGap(speed, foxHitboxW) {
+  return jumpSpan(speed) - foxHitboxW;
+}
+
+/* Level four's river. The ground has been one unbroken strip since level
+ * one; here it stops and starts, and a fox who runs out of bank goes in
+ * the water.
+ *
+ * The wide crossing is deliberately beyond ANY single jump - held, at any
+ * speed - with a stepping stone standing in the middle of it. Jumping from
+ * higher up buys almost nothing (falling further adds time by a square
+ * root: a 55px stone is worth about 10% more reach), so the stone has to
+ * be a place to land rather than a launch pad, and the layout is what
+ * makes it impossible to cross flat-to-flat.
+ */
+const RIVER = {
+  // Widths as a share of what the fox could clear right now.
+  narrow: 0.44,
+  wide: 0.60,
+  /* Each half of a stepping-stone crossing. 0.62 is the point at which a
+   * single jump stops working at EVERY speed: below it a well-timed leap
+   * lands on the stone and then coasts off the far side, because the
+   * coyote grace plus a 55px drop carries him further than the second
+   * half. Measured at 215, 300 and 450px/s.
+   */
+  stoneHop: 0.62,
+  stoneWidth: 0.62,    // the stone itself: a generous place to land
+  stoneHeight: 55,     // px above the bank - a clear step up, and a tap
+                       // reaches 108, so getting onto it is never the hard part
+  minRunUp: 300,       // clear bank before a crossing: never a surprise
+  minLanding: 240,     // clear bank after it, to recover on
+  gapMin: 1700,        // px of travel between crossings
+  gapMax: 3200,
+  stonesFrom: 700,     // score at which the two-hop crossings start
+  fallKills: 40,       // px below the bank before the run is over
+  waterTop: 10,        // where the waterline sits below the bank surface
+};
 
 const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
 
@@ -1754,13 +1840,20 @@ class Fox {
     this.holdElapsed = 0;
     this.arc = null;
     this.fallScale = null;
+    this.coyote = PHYSICS.coyoteTime;
     this.throwTime = null; // non-null while the throw animation plays
     this.throwForward = false;
+    this.coyote = PHYSICS.coyoteTime; // grace after running off a bank
   }
 
   startThrow(forward) {
     this.throwTime = 0;
     this.throwForward = !!forward;
+  }
+
+  // True once he is past saving: in the water, below the bank.
+  hasFallenIn() {
+    return !this.onGround && this.y > this.groundY + RIVER.fallKills;
   }
 
   jump(speed) {
@@ -1781,8 +1874,25 @@ class Fox {
     this.holding = false;
   }
 
-  update(dt, speed) {
+  /* `surfaceY` is the top of whatever is beneath him: the ground, a
+   * stepping stone, or null for open water. Levels without a river pass
+   * the ground line every frame, which is exactly what he did before.
+   */
+  update(dt, speed, surfaceY) {
+    const surface = surfaceY === undefined ? this.groundY : surfaceY;
+    if (this.onGround) {
+      const footY = this.y + this.h;
+      if (surface === null || surface > footY + 1) {
+        // Nothing under him any more. A moment of grace, then he drops.
+        this.coyote -= dt;
+        if (this.coyote <= 0) this.onGround = false;
+      } else {
+        this.coyote = PHYSICS.coyoteTime;
+        this.y = surface - this.h;   // stay with the surface he is on
+      }
+    }
     if (!this.onGround) {
+      const footWas = this.y + this.h;   // where his feet were before this step
       const arc = this.arc || jumpArc(speed);
       let g;
       if (this.vy < 0) {
@@ -1803,10 +1913,18 @@ class Fox {
       }
       this.vy += g * dt;
       this.y += this.vy * dt;
-      if (this.y >= this.groundY - this.h) {
-        this.y = this.groundY - this.h;
+      /* Land on whatever is there, and only by coming down ONTO it. The
+       * check is swept - where his feet were, against where they are - so
+       * a fox who has dropped past the bank into the water cannot be
+       * scooped back up by the far side arriving underneath him.
+       */
+      const foot = this.y + this.h;
+      if (surface !== null && this.vy >= 0
+          && footWas <= surface + 0.5 && foot >= surface) {
+        this.y = surface - this.h;
         this.vy = 0;
         this.onGround = true;
+        this.coyote = PHYSICS.coyoteTime;
       }
     }
     // Run animation rate rises gently with scroll speed (softened so the
@@ -2464,6 +2582,140 @@ class AcornShot {
   }
 }
 
+/* A hole in the bank, with any stepping stones standing in it. Everything
+ * here is in screen coordinates and scrolls with the world, the same way
+ * obstacles do.
+ */
+class Crossing {
+  constructor(x, w, stones) {
+    this.x = x;
+    this.w = w;
+    this.stones = stones || [];   // [{ x, w, top }]
+  }
+
+  update(dt, speed) {
+    const d = speed * dt;
+    this.x -= d;
+    for (const s of this.stones) s.x -= d;
+  }
+
+  isOffscreen() {
+    return this.x + this.w < -120;
+  }
+
+  covers(x) {
+    return x >= this.x && x <= this.x + this.w;
+  }
+
+  /* The top of the stone under this x, or null for open water. */
+  stoneTopAt(x) {
+    let top = null;
+    for (const s of this.stones) {
+      if (x >= s.x && x <= s.x + s.w && (top === null || s.top < top)) top = s.top;
+    }
+    return top;
+  }
+}
+
+/* The river: where the bank is, where it is not, and what the fox can
+ * stand on. Only built for a theme that asks for one, so the first three
+ * levels never have a crossing and never pay for the check.
+ */
+class River {
+  constructor(groundY) {
+    this.groundY = groundY;
+    this.reset();
+  }
+
+  reset() {
+    this.crossings = [];
+    this.distanceUntilNext = RIVER.gapMin;
+  }
+
+  /* The top of whatever is beneath this x - the bank, a stepping stone,
+   * or null for open water. Everything about falling in comes back to this.
+   */
+  surfaceAt(x) {
+    for (const c of this.crossings) {
+      if (!c.covers(x)) continue;
+      return c.stoneTopAt(x);      // null when there is no stone there
+    }
+    return this.groundY;
+  }
+
+  // Screen spans where there IS bank, so the ground can be drawn around
+  // the holes rather than straight through them.
+  bankSpans() {
+    const holes = this.crossings
+      .map((c) => [c.x, c.x + c.w])
+      .sort((a, b) => a[0] - b[0]);
+    const spans = [];
+    let cursor = -120;
+    for (const [x0, x1] of holes) {
+      if (x1 < cursor) continue;
+      if (x0 > cursor) spans.push([cursor, x0]);
+      cursor = Math.max(cursor, x1);
+    }
+    spans.push([cursor, GAME_W + 120]);
+    return spans.filter(([a, b]) => b > a);
+  }
+
+  update(dt, speed, score, spawner, acornSpawner, dogs, foxHitboxW, holdOff, obstacles) {
+    for (const c of this.crossings) c.update(dt, speed);
+    this.crossings = this.crossings.filter((c) => !c.isOffscreen());
+    if (holdOff) return;
+    // One hazard at a time: never a crossing while a dog is on him.
+    if (dogs.some((d) => d.state !== "sleeping" && d.state !== "stunned")) {
+      this.distanceUntilNext = Math.max(this.distanceUntilNext, 600);
+      return;
+    }
+    this.distanceUntilNext -= speed * dt;
+    if (this.distanceUntilNext > 0) return;
+
+    const max = maxClearableGap(speed, foxHitboxW);
+    const spawnX = GAME_W + RIVER.minRunUp;
+    /* Wait for a clear run-up. Obstacles enter nearer the edge of the
+     * screen than crossings do, so one already in flight would sit only a
+     * couple of hundred px in front of the near lip - land from a jump and
+     * be over water before the next stride.
+     */
+    if (obstacles && obstacles.some((o) => o.x + o.w > spawnX - RIVER.minRunUp)) return;
+    let crossing;
+    if (score >= RIVER.stonesFrom && Math.random() < 0.45) {
+      /* Two hops with a stone in the middle. Each half is half the jump he
+       * has, so neither is near the limit - but together with the stone
+       * they are far beyond one jump, which is the whole point of it.
+       */
+      const hop = max * RIVER.stoneHop;
+      const stoneW = max * RIVER.stoneWidth;
+      const w = hop * 2 + stoneW;
+      crossing = new Crossing(spawnX, w, [{
+        x: spawnX + hop,
+        w: stoneW,
+        top: this.groundY - RIVER.stoneHeight,
+      }]);
+    } else {
+      const share = score >= RIVER.stonesFrom ? RIVER.wide : RIVER.narrow;
+      crossing = new Crossing(spawnX, max * share, []);
+    }
+    this.crossings.push(crossing);
+
+    /* Take the room. Nothing else may be in the run-up, the crossing or
+     * the landing: a forced jump on the lip of a gap, or an acorn hanging
+     * over open water, is a death the player could not have avoided.
+     *
+     * minRunUp is in here because a crossing enters that much further
+     * right than an obstacle does - without it the next obstacle spawns
+     * straight into the far half of the hole.
+     */
+    const reserved = RIVER.minRunUp + crossing.w + RIVER.minLanding;
+    spawner.distanceUntilNext = Math.max(spawner.distanceUntilNext, reserved);
+    acornSpawner.distanceUntilNext = Math.max(acornSpawner.distanceUntilNext, reserved);
+    this.distanceUntilNext = crossing.w
+      + RIVER.gapMin + Math.random() * (RIVER.gapMax - RIVER.gapMin);
+  }
+}
+
 // A bluebird crossing the sky at jump height. Lethal on contact.
 class Bird {
   constructor(x, centerY, frames, groundY) {
@@ -2910,6 +3162,8 @@ class Game {
     this.acornSpawner = new AcornSpawner(this.groundY);
     this.dogDirector = new DogDirector(this.groundY);
     this.birdSpawner = new BirdSpawner(this.groundY);
+    // Only settings that ask for one have a river; the rest never do.
+    this.river = new River(this.groundY);
     this.birds = [];
 
     this.state = "ready"; // ready | running | gameover
@@ -3202,6 +3456,7 @@ class Game {
     this.acornSpawner.reset();
     this.dogDirector.reset();
     this.birdSpawner.reset();
+    this.river.reset();
     this.birds = [];
   }
 
@@ -3468,7 +3723,22 @@ class Game {
       this.beginFinish();
     }
 
-    this.fox.update(dt, this.speed);
+    /* What is under him decides everything: the bank, a stepping stone,
+     * or open water. Without a river this is the ground line every frame,
+     * which is what he has always had.
+     */
+    const foxMid = this.fox.getHitbox();
+    const surfaceY = THEME.river
+      ? this.river.surfaceAt(foxMid.x + foxMid.w / 2)
+      : this.groundY;
+    this.fox.update(dt, this.speed, surfaceY);
+    if (THEME.river) {
+      this.river.update(
+        dt, this.speed, this.score, this.spawner, this.acornSpawner,
+        this.dogDirector.dogs, foxMid.w, !!this.finish, this.obstacles
+      );
+      if (this.fox.hasFallenIn()) { this.endRun(); return; }
+    }
     if (this.finish) {
       this.updateFinish(dt);
       if (this.state !== "running") return;
@@ -3667,12 +3937,78 @@ class Game {
     const grassTop = this.groundY - gc.grass.drawH * gc.grass.surfaceFrac;
     const grassBottom = grassTop + gc.grass.drawH;
     const dirtTop = grassBottom - gc.dirt.overlap;
-    ctx.fillStyle = gc.underfill || GROUND.underfill;
-    ctx.fillRect(0, dirtTop + 6, GAME_W, GAME_H - dirtTop - 6);
-    this.drawTiledLayer(images.groundDirt, gc.dirt.drawH, dirtTop + gc.dirt.drawH,
-      this.scroll, true, gc.dirt);
-    this.drawTiledLayer(images.groundGrass, gc.grass.drawH, grassBottom,
-      this.scroll, true, gc.grass);
+    const layEarth = () => {
+      ctx.fillStyle = gc.underfill || GROUND.underfill;
+      ctx.fillRect(0, dirtTop + 6, GAME_W, GAME_H - dirtTop - 6);
+      this.drawTiledLayer(images.groundDirt, gc.dirt.drawH, dirtTop + gc.dirt.drawH,
+        this.scroll, true, gc.dirt);
+      this.drawTiledLayer(images.groundGrass, gc.grass.drawH, grassBottom,
+        this.scroll, true, gc.grass);
+    };
+
+    if (!THEME.river || !this.river.crossings.length) {
+      layEarth();
+      return;
+    }
+
+    /* With a river the bank is no longer one strip: water goes down first,
+     * then the earth is drawn only across the spans where there IS bank,
+     * clipped so it stops dead at each edge instead of running over the
+     * hole.
+     */
+    this.drawWater(dirtTop);
+    for (const [x0, x1] of this.river.bankSpans()) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, 0, x1 - x0, GAME_H);
+      ctx.clip();
+      layEarth();
+      ctx.restore();
+    }
+    this.drawCrossings(dirtTop);
+  }
+
+  /* River water, filling the holes in the bank. Stand-in art for now: the
+   * real thing is a tiling water surface, and this is here so the level
+   * can be built and played before it arrives.
+   */
+  drawWater(dirtTop) {
+    const { ctx } = this;
+    const top = this.groundY + RIVER.waterTop;
+    for (const c of this.river.crossings) {
+      const g = ctx.createLinearGradient(0, top, 0, GAME_H);
+      g.addColorStop(0, "#4a86a8");
+      g.addColorStop(1, "#1d3f57");
+      ctx.fillStyle = g;
+      ctx.fillRect(c.x, top, c.w, GAME_H - top);
+      // A waterline, so the surface reads as water rather than a hole.
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.fillRect(c.x, top, c.w, 3);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.fillRect(c.x, top + 11, c.w, 2);
+    }
+  }
+
+  /* The cut faces at each bank edge, and the stepping stones standing in
+   * the water. Stand-in shapes until the artwork lands.
+   */
+  drawCrossings(dirtTop) {
+    const { ctx } = this;
+    for (const c of this.river.crossings) {
+      // The bank does not just stop in mid-air: give each side a face.
+      ctx.fillStyle = "rgba(38, 26, 16, 0.85)";
+      ctx.fillRect(c.x - 7, dirtTop, 7, this.groundY + RIVER.waterTop - dirtTop + 6);
+      ctx.fillRect(c.x + c.w, dirtTop, 7, this.groundY + RIVER.waterTop - dirtTop + 6);
+      for (const s of c.stones) {
+        const h = this.groundY + 26 - s.top;
+        ctx.fillStyle = "#5b6b53";
+        roundRectPath(ctx, s.x, s.top, s.w, h, 9);
+        ctx.fill();
+        ctx.fillStyle = "#7d9070";           // a flat top to land on
+        roundRectPath(ctx, s.x, s.top, s.w, 11, 6);
+        ctx.fill();
+      }
+    }
   }
 
   /* The fox's burrow. Uses the theme's art when it exists; otherwise it is
