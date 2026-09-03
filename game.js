@@ -2540,7 +2540,15 @@ class Game {
           return;
         }
       }
-      if (this.state === "running") { this.pauseRun(); return; }
+      if (this.state === "running") {
+        if (r.width) {
+          const cx = (e.clientX - r.left) * (GAME_W / r.width);
+          const cy = (e.clientY - r.top) * (GAME_H / r.height);
+          if (this.inThumbZone(cx, cy)) return; // a near-miss on JUMP/THROW
+        }
+        this.pauseRun();
+        return;
+      }
       if (this.state === "paused") { this.resumeRun(); return; }
       if (this.state === "ready" && this.levelChips.length) {
         // Map the tap into canvas coordinates before hit-testing the chips.
@@ -3584,6 +3592,32 @@ class Game {
       x += w + gap;
     });
     ctx.restore();
+  }
+
+  /* The corners the thumbs live in, in canvas coordinates, generously
+   * padded. A tap that lands here while playing does nothing at all: it
+   * was aimed at JUMP or THROW, and treating a near-miss as "pause the
+   * game" cost players runs.
+   */
+  inThumbZone(cx, cy) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (!rect.width) return false;
+    const toCanvasX = (v) => (v - rect.left) * (GAME_W / rect.width);
+    const toCanvasY = (v) => (v - rect.top) * (GAME_H / rect.height);
+    // Generous: while playing there is no reason to tap the bottom
+    // corners other than aiming for JUMP or THROW.
+    const pad = 55;
+    for (const id of ["btn-jump", "btn-throw"]) {
+      const el = document.getElementById(id);
+      if (!el || !el.offsetParent) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      if (cx >= toCanvasX(r.left) - pad && cx <= toCanvasX(r.right) + pad &&
+          cy >= toCanvasY(r.top) - pad && cy <= toCanvasY(r.bottom) + pad) {
+        return true;
+      }
+    }
+    return false;
   }
 
   buttonAt(cx, cy) {

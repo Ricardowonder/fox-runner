@@ -37,8 +37,8 @@ body {
 .touch-btn {
   position: absolute;
   bottom: 12px;
-  width: clamp(58px, 11vw, 84px);
-  height: clamp(58px, 11vw, 84px);
+  width: clamp(72px, 13vw, 100px);
+  height: clamp(72px, 13vw, 100px);
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.55);
   background: rgba(30, 45, 25, 0.35);
@@ -54,16 +54,26 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The tappable area reaches well beyond the visible circle. A thumb that
+   lands just outside the button used to hit the canvas behind it and
+   pause the game, which is a rotten way to lose a run. */
+.touch-btn::after {
+  content: "";
+  position: absolute;
+  inset: -26px;
+  border-radius: 50%;
+}
+
 .touch-btn:active {
   background: rgba(255, 255, 255, 0.28);
 }
 
 .touch-btn-left {
-  left: 12px;
+  left: 10px;
 }
 
 .touch-btn-right {
-  right: 12px;
+  right: 10px;
 }
 
 /* Fullscreen toggle in the top-right corner of the game area. */
