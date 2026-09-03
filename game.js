@@ -459,7 +459,7 @@ const THEMES = {
        * it flies higher to keep the promise the bluebird made in level 1:
        * a fox on the ground can never be hit by anything in the air.
        */
-      flyer: { w: 62, h: 62, altMin: 96,
+      flyer: { w: 62, h: 62, altMin: 118, altMax: 152,
                trim: { sx: 102, sy: 11, sw: 329, sh: 330 },
                hitTrim: { sx: 107, sy: 23, sw: 298, sh: 275 },
                fallTrim: { sx: 97, sy: 23, sw: 318, sh: 275 } },
@@ -1000,9 +1000,11 @@ function dogChaseTuning(score) {
 // gentle arc; hitting any dog stops it.
 const THROW = { vx: -430, vy: -140, gravity: 900, cooldown: 0.4, size: 20 };
 
-/* The bluebird: a flying hazard. It crosses at jump height, so a fox on
- * the ground is always safe — it punishes being airborne at the wrong
- * moment (mid-jump for an acorn or an obstacle). Touching it ends the run.
+/* The bluebird: a flying hazard. It punishes being airborne at the wrong
+ * moment (mid-jump for an acorn or an obstacle) and never touches a fox
+ * with his feet on the ground - that promise is what makes it fair, and
+ * birdFloor() enforces it rather than trusting the numbers below.
+ * Touching it ends the run.
  */
 const BIRD = {
   // Six-frame wing beat. One shared union trim keeps the body steady
@@ -1018,8 +1020,15 @@ const BIRD = {
   // in a clear corridor drifts into an obstacle before reaching the fox,
   // turning a forced jump into an unavoidable collision.
   speedFactor: 1.0,
-  altMin: 88,            // center height above the surface; the minimum
-  altMax: 135,           // keeps it clear of a grounded fox (62 tall)
+  /* It comes in high and DESCENDS toward the fox as it closes. Tenser to
+   * watch, low enough by the end to be worth an acorn, and a real reason
+   * not to be in the air when it arrives. It never reaches him: see
+   * birdFloor(), which is a hard clamp rather than a tuned number.
+   */
+  altMin: 105,           // centre height above the surface, on the way IN
+  altMax: 148,
+  diveFrom: 640,         // gap at which it stops cruising and starts down
+  clearance: 14,         // px its hitbox keeps above a fox standing up
   bobAmp: 7,             // gentle sine bob
   bobRate: 3.5,
   fallGravity: 900,      // how it drops once an acorn connects
@@ -1036,6 +1045,21 @@ const BIRD = {
   corridorAhead: 240,
   hitbox: { left: 0.14, right: 0.12, top: 0.18, bottom: 0.18 },
 };
+
+/* The lowest altitude a bird may fly at, in px above the surface.
+ * A fox standing on the ground is never hit by anything in the air. That
+ * holds however low a theme asks its birds to dive, because the dive is
+ * clamped to this: the bird's own hitbox stays BIRD.clearance above the
+ * top of the fox's, with both insets accounted for.
+ */
+function birdFloor() {
+  const foxTop = FOX_H * (1 - FOX_HITBOX.top);      // his head, above ground
+  const halfBird = BIRD.h / 2;
+  const inset = BIRD.hitbox.bottom * BIRD.h;        // its feet, inside its box
+  // bobAmp too: the sine bob rides on top of the descent, and without it
+  // the bird dips a full bob below the floor and eats the whole margin.
+  return foxTop + BIRD.clearance + BIRD.bobAmp + halfBird - inset;
+}
 
 const HISCORE_KEY = "foxRunnerHiScore";
 
@@ -2442,13 +2466,18 @@ class AcornShot {
 
 // A bluebird crossing the sky at jump height. Lethal on contact.
 class Bird {
-  constructor(x, centerY, frames) {
+  constructor(x, centerY, frames, groundY) {
     this.frames = frames;
     // Start mid-cycle so a flock never beats in unison.
     this.flapPhase = Math.random() * BIRD.frameCount;
     this.w = BIRD.w;
     this.h = BIRD.h;
     this.x = x;
+    this.groundY = groundY !== undefined ? groundY : centerY + this.h / 2;
+    // Altitude of its centre above the surface: what it comes in at, and
+    // the floor it descends toward, never below what is safe.
+    this.entryAlt = this.groundY - centerY;
+    this.diveAlt = Math.min(this.entryAlt, birdFloor());
     this.baseY = centerY - this.h / 2;
     this.y = this.baseY;
     this.age = 0;
@@ -2465,7 +2494,7 @@ class Bird {
     this.hitTime = 0;    // holds the struck frame before it starts tumbling
   }
 
-  update(dt, speed) {
+  update(dt, speed, foxX) {
     this.age += dt;
     if (this.falling) {
       this.fallVy += BIRD.fallGravity * dt;
@@ -2477,6 +2506,18 @@ class Bird {
       return;
     }
     this.x -= speed * BIRD.speedFactor * dt;
+    /* Cruises in at its entry height, then eases down toward the fox over
+     * the last stretch. Driven by the GAP rather than by time, so it
+     * arrives at the same height whatever the level is doing for speed.
+     */
+    let alt = this.entryAlt;
+    if (foxX !== undefined && BIRD.diveFrom > 0) {
+      const gap = this.x - foxX;
+      const t = Math.max(0, Math.min(1, 1 - gap / BIRD.diveFrom));
+      const eased = t * t * (3 - 2 * t);
+      alt = this.entryAlt + (this.diveAlt - this.entryAlt) * eased;
+    }
+    this.baseY = this.groundY - alt - this.h / 2;
     this.y = this.baseY + Math.sin(this.age * BIRD.bobRate * 2) * BIRD.bobAmp;
   }
 
@@ -2561,7 +2602,7 @@ class BirdSpawner {
       return;
     }
     const centerY = this.groundY - (BIRD.altMin + Math.random() * (BIRD.altMax - BIRD.altMin));
-    birds.push(new Bird(spawnX, centerY, frames));
+    birds.push(new Bird(spawnX, centerY, frames, this.groundY));
     // Hold obstacles back too: one spawned just behind the bird would
     // force a jump straight into it, since both now travel at the same
     // speed and stay side by side all the way to the fox.
@@ -3472,7 +3513,8 @@ class Game {
       dt, this.speed, this.score, this.birds,
       this.obstacles, this.dogDirector.dogs, this.acorns, this.spawner, this.images.birdFly
     );
-    for (const b of this.birds) b.update(dt, this.speed);
+    const foxFront = this.fox.getHitbox().x;
+    for (const b of this.birds) b.update(dt, this.speed, foxFront);
     this.birds = this.birds.filter((b) => !b.isOffscreen());
 
     /* Thrown acorns hit one thing each, and only the thing they were
