@@ -73,9 +73,10 @@ resting width would balloon it at every step.
 
 ## Known art problems
 
-- The ram and bear reaction sets were regenerated as six-pose wake-to-pounce
-  sequences, ending with a four-legged landing frame. They are clean - the
-  sliced ram frames noted here before are gone.
+- The ram and bear reaction sets are six-pose wake-to-pounce sequences
+  ending with a four-legged landing frame. `bear_4.png` and `ram_4.png` were
+  re-cut after the first pass ran off the top of the canvas; all twelve
+  frames now sit clear of every edge.
 - `obstacles/spire.png` carries a fragment of the pine log to the left of the
   spire, and `obstacles/boulder.png` a sliver of another frame at its right
   edge. Both are excluded by the trims in `game.js` rather than erased.
@@ -100,9 +101,9 @@ way at the fox, and land. Four things in `game.js` make that work.
 
 `sheet` and `floor` say that all six frames share one stage rect and one
 canvas row for the ground, so a single scale serves the set. That matters
-because the leap frames are drawn genuinely airborne - the bear's feet 81px
-up its own canvas, the ram's 146px - and floor-anchoring floats them by
-exactly that much instead of dumping them back on the grass.
+because the leap frames are drawn airborne - both animals' feet 53px up
+their own canvas - and floor-anchoring floats them by exactly that much
+instead of dumping them back on the grass.
 
 `lungeBy` is how far it actually travels at the fox: 28px for the bear,
 24px for the ram, eased so it is quick off the mark and settles into the
@@ -125,4 +126,4 @@ Measured tap windows, against the levels either side:
 | woodland | 0.354s | 0.458s |
 | mountain | 0.325s | 0.462s |
 
-The bear is 0.329s and the ram 0.408s.
+The bear is 0.329s and the ram 0.371s.

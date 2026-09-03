@@ -48,6 +48,17 @@ const HERO = {
     "assets/shared/fox/throw_03_release.png",
     "assets/shared/fox/throw_04_recover.png",
   ],
+  /* Drawn later than the rest, so all four are OPTIONAL: absent, the fox
+   * keeps the single jump pose and throws forward without a wind-up, and
+   * nothing breaks. Their trims below are placeholders until the artwork
+   * lands - `python3 tools/check_trims.py` prints the real numbers.
+   */
+  air: "assets/shared/fox/jump_horizontal.png", // level, at the top of the arc
+  fall: "assets/shared/fox/jump_dive.png",      // coming down to land
+  throwFwd: [
+    "assets/shared/fox/throw_front_01_windup.png",
+    "assets/shared/fox/throw_front_02_release.png",
+  ],
 };
 
 // Builds a theme's paths from its folder; every theme has this same shape.
@@ -143,7 +154,12 @@ function makeTheme(dir, label, opts) {
       bite: p("chaser", "bite.png"),
       run: seq(12, (i) => p("chaser", `run_${pad2(i + 1)}.png`)),
     },
-    flyer: { fly: qList("flyer", "fly", seq(6, (i) => `fly_${pad2(i + 1)}.png`)) },
+    flyer: {
+      fly: qList("flyer", "fly", seq(6, (i) => `fly_${pad2(i + 1)}.png`)),
+      // Struck, then tumbling: shown after a thrown acorn connects.
+      hit: q("flyer", "hit", "fly_hit.png"),
+      fall: q("flyer", "fall", "fly_fall.png"),
+    },
     collectible: { item: p("collectible", "item.png"), icon: p("collectible", "icon.png") },
     scenery: {
       sky: q("scenery", "sky", "sky.png"),
@@ -234,7 +250,8 @@ const THEMES = {
     files: {
       obstacles: { hedgehog: "ferret.png", rabbit: "badger.png", rock: "otter.png",
                    log: "log_mossy.png", stump: "log_hollow.png" },
-      flyer: { fly: seq(6, (i) => `owl_fly_${pad2(i + 1)}.png`) },
+      flyer: { fly: seq(6, (i) => `owl_fly_${pad2(i + 1)}.png`),
+               hit: "owl_hit.png", fall: "owl_fall.png" },
       scenery: { sky: "woodland_background.png",
                  trees: ["tree_oak.png", "tree_birch.png", "tree_pine.png"] },
     },
@@ -301,7 +318,9 @@ const THEMES = {
       // The field's mossy boulder, earning its place in the woodland mix.
       boulder: { h: 44, weight: 2.6, availableFrom: 400, sink: 8 },
       // The owl is a bigger bird than the bluebird.
-      flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 } },
+      flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 },
+               hitTrim: { sx: 108, sy: 35, sw: 295, sh: 250 },
+               fallTrim: { sx: 93, sy: 35, sw: 326, sh: 250 } },
     },
   }),
   /* Level 3. The path stays flat - a real gradient would run the fox off
@@ -319,7 +338,8 @@ const THEMES = {
       obstacles: { hedgehog: "skunk.png", rabbit: "bear.png", rock: "marmot.png",
                    log: "log_pine.png", stump: "spire.png", sentry: "ram.png",
                    boulder: "boulder.png" },
-      flyer: { fly: seq(6, (i) => `eagle_fly_${pad2(i + 1)}.png`) },
+      flyer: { fly: seq(6, (i) => `eagle_fly_${pad2(i + 1)}.png`),
+               hit: "eagle_hit.png", fall: "eagle_fall.png" },
       ground: { grass: "ledge.png", dirt: "ledge.png" },
       scenery: {
         // The mountain keeps its own bush strip - grey stones among the
@@ -351,14 +371,14 @@ const THEMES = {
         h: 50, availableFrom: 1100, sink: 4, weight: 2.2,
         sheet: { sx: 25, sw: 461 }, floor: 341,
         rearNotice: 470, riseTime: 0.42,
-        lungeBy: 28, lungeAt: 130, lungeTime: 0.24,
+        lungeBy: 28, lungeAt: 165, lungeTime: 0.24,
         trim: { sx: 32, sy: 129, sw: 447, sh: 212 },
         hitbox: { left: 0.14, right: 0.22, top: 0.12, bottom: 0.02 },
         poses: [
           { trim: { sx: 25, sy: 113, sw: 461, sh: 228 } }, // waking
           { trim: { sx: 50, sy: 36, sw: 412, sh: 305 } },  // up on all fours
           { trim: { sx: 108, sy: 31, sw: 296, sh: 310 } }, // reared
-          { trim: { sx: 25, sy: 0, sw: 461, sh: 260 } },   // leaping, airborne
+          { trim: { sx: 31, sy: 117, sw: 450, sh: 171 } }, // leaping, airborne
           { trim: { sx: 40, sy: 11, sw: 432, sh: 330 } },  // landed
         ],
       },
@@ -368,16 +388,16 @@ const THEMES = {
        */
       sentry: {
         h: 40, availableFrom: 500, sink: 4, weight: 2,
-        sheet: { sx: 98, sw: 311 }, floor: 341,
+        sheet: { sx: 61, sw: 390 }, floor: 341,
         rearNotice: 430, riseTime: 0.38,
-        lungeBy: 24, lungeAt: 130, lungeTime: 0.22,
+        lungeBy: 24, lungeAt: 165, lungeTime: 0.22,
         trim: { sx: 106, sy: 180, sw: 299, sh: 161 },
         hitbox: { left: 0.14, right: 0.20, top: 0.12, bottom: 0.02 },
         poses: [
           { trim: { sx: 125, sy: 113, sw: 261, sh: 228 } }, // head up
           { trim: { sx: 119, sy: 41, sw: 274, sh: 300 } },  // reared
           { trim: { sx: 106, sy: 94, sw: 300, sh: 247 } }, // launching forward
-          { trim: { sx: 98, sy: 0, sw: 272, sh: 195 } },    // leaping, airborne
+          { trim: { sx: 61, sy: 84, sw: 390, sh: 204 } },  // leaping, airborne
           { trim: { sx: 103, sy: 175, sw: 306, sh: 166 } }, // landed
         ],
       },
@@ -440,7 +460,9 @@ const THEMES = {
        * a fox on the ground can never be hit by anything in the air.
        */
       flyer: { w: 62, h: 62, altMin: 96,
-               trim: { sx: 102, sy: 11, sw: 329, sh: 330 } },
+               trim: { sx: 102, sy: 11, sw: 329, sh: 330 },
+               hitTrim: { sx: 107, sy: 23, sw: 298, sh: 275 },
+               fallTrim: { sx: 97, sy: 23, sw: 318, sh: 275 } },
     },
     /* One tile, cropped twice: the grass lip and blades on top, then the
      * stone cross-section below it. srcY values are fixed pixel bands
@@ -617,7 +639,7 @@ const SCORE_DISTANCE_DIVISOR = 12; // px of travel per score point
  * how far you got: a good level is 3000 from distance, against maybe 500
  * from acorns and 500 from dogs.
  */
-const SCORING = { acorn: 25, dog: 100 };
+const SCORING = { acorn: 25, dog: 100, bird: 75 };
 function levelGoal() { return LEVELS[levelIndex].goal; }
 
 /* Finishing a level: the spawners stop, the fox's burrow scrolls in, and
@@ -680,7 +702,31 @@ const FOX_TRIMS = {
   foxThrow2: { sx: 22, sy: 11, sw: 477, sh: 330, hScale: 1.26 },
   foxThrow3: { sx: 8, sy: 3, sw: 492, sh: 338, hScale: 1.29 },
   foxThrow4: { sx: 16, sy: 3, sw: 482, sh: 327, hScale: 1.06 },
+  /* The airborne pair. hScale holds them to the same pixel scale as the
+   * rising jump pose (62/325), so the fox keeps one apparent size right
+   * through the arc instead of swelling as he flattens out.
+   */
+  foxAir: { sx: 18, sy: 62, sw: 475, sh: 208, hScale: 0.64 },
+  foxFall: { sx: 38, sy: 20, sw: 435, sh: 265, hScale: 0.82 },
+  // Throwing ahead: matched to the run scale (62/260), like the other throws.
+  foxThrowFwd1: { sx: 19, sy: 48, sw: 473, sh: 281, hScale: 1.08 },
+  foxThrowFwd2: { sx: 18, sy: 60, sw: 475, sh: 269, hScale: 1.04 },
 };
+
+/* Which of the three airborne poses to show, by how fast the fox is
+ * moving vertically as a share of the speed he left the ground at. He
+ * climbs, levels out over the top, then comes down - roughly a third of
+ * the airtime each, which is what reads as an arc rather than a hop.
+ */
+const FOX_AIR = { levelFrac: 0.35 };
+
+/* Thrown AHEAD rather than back over his shoulder. Flatter and faster than
+ * the backward lob, and it climbs into the band the birds fly in: from the
+ * fox's paw (~32px up) it peaks around 150px, and half a second out - about
+ * when it meets a bird crossing mid-screen - it is passing through 134px.
+ * Ground animals ignore it entirely; this is for things in the air.
+ */
+const THROW_FWD = { vx: 600, vy: -300, gravity: 380, cooldown: 0.4, size: 20 };
 
 // Throw animation timing: 4 frames; the projectile leaves the paw at the
 // start of the release frame, not at the key press.
@@ -968,6 +1014,12 @@ const BIRD = {
   altMax: 135,           // keeps it clear of a grounded fox (62 tall)
   bobAmp: 7,             // gentle sine bob
   bobRate: 3.5,
+  fallGravity: 900,      // how it drops once an acorn connects
+  hitHold: 0.18,         // seconds on the struck frame before it tumbles
+  // Drawn at the same pixel scale as the flight frames, so the bird does
+  // not change size the instant it is hit.
+  hitTrim: { sx: 100, sy: 38, sw: 312, sh: 245 },
+  fallTrim: { sx: 135, sy: 38, sw: 241, sh: 245 },
   // No obstacle/dog/acorn may sit in this corridor around the spawn point,
   // so a bird never crosses right where a jump is being forced.
   // Wide enough to cover a whole jump arc either side, so a bird is never
@@ -1048,6 +1100,9 @@ function maxSingleJumpSpan(speed, obstacleH, foxHitboxW) {
 // ---------------------------------------------------------------------------
 
 let IMAGE_SOURCES = {};
+
+// Optional files that came back 404 this session; see loadImages.
+const MISSING_ART = new Set();
 
 /* Re-points every theme-derived binding at the current THEME. Must run
  * before each load, because advancing a level swaps the theme and these
@@ -1191,6 +1246,8 @@ function themeImageEntries(theme) {
     .forEach((k) => push(theme.chaser[k]));
   theme.chaser.run.forEach(push);
   theme.flyer.fly.forEach(push);
+  push(theme.flyer.hit);
+  push(theme.flyer.fall);
   push(theme.collectible.item);
   push(theme.collectible.icon);
   push(theme.scenery.sky);
@@ -1251,6 +1308,8 @@ function loadAssets() {
   THEME.flyer.fly.forEach((src, i) => {
     jobs.push(loadImage(src).then((img) => (images.birdFly[i] = img)));
   });
+  jobs.push(loadImage(THEME.flyer.hit).then((img) => (images.birdHit = img)));
+  jobs.push(loadImage(THEME.flyer.fall).then((img) => (images.birdFall = img)));
   images.dogRun = [];
   THEME.chaser.run.forEach((src, i) => {
     jobs.push(loadImage(src).then((img) => (images.dogRun[i] = img)));
@@ -1265,14 +1324,27 @@ function loadAssets() {
       })
     );
   }
-  // Optional art: absent files simply leave the key undefined.
-  jobs.push(loadImage(THEME.foxhole).then((img) => { images.foxhole = img; }, () => {}));
+  /* Optional art: absent files simply leave the key undefined. A file that
+   * 404s once will 404 every level load, so the miss is remembered for the
+   * session and not asked for again - otherwise artwork that has not been
+   * drawn yet fills the console every time a level starts.
+   */
+  const optional = (src, assign) => {
+    if (!src || MISSING_ART.has(src)) return;
+    jobs.push(loadImage(src).then(assign, () => { MISSING_ART.add(src); }));
+  };
+  optional(THEME.foxhole, (img) => { images.foxhole = img; });
+  // The later fox frames. Absent, currentPose falls back to what it had.
+  optional(THEME.hero.air, (img) => { images.foxAir = img; });
+  optional(THEME.hero.fall, (img) => { images.foxFall = img; });
+  THEME.hero.throwFwd.forEach((src, i) => {
+    optional(src, (img) => { images["foxThrowFwd" + (i + 1)] = img; });
+  });
   for (const band of THEME.bands || []) {
     if (!OPTIONAL_BAND_IMAGES.includes(band.img)) continue;
-    const src = THEME.scenery[band.img];
-    jobs.push(loadImage(src).then((img) => { images[band.img] = img; }, () => {}));
+    optional(THEME.scenery[band.img], (img) => { images[band.img] = img; });
   }
-  jobs.push(loadImage(THEME.levelCompleteBg).then((img) => { images.levelCompleteBg = img; }, () => {}));
+  optional(THEME.levelCompleteBg, (img) => { images.levelCompleteBg = img; });
   return Promise.all(jobs).then(() => images);
 }
 
@@ -1651,10 +1723,12 @@ class Fox {
     this.arc = null;
     this.fallScale = null;
     this.throwTime = null; // non-null while the throw animation plays
+    this.throwForward = false;
   }
 
-  startThrow() {
+  startThrow(forward) {
     this.throwTime = 0;
+    this.throwForward = !!forward;
   }
 
   jump(speed) {
@@ -1741,15 +1815,45 @@ class Fox {
     ];
   }
 
+  /* Airborne: climbing, level over the top, then coming down. Chosen by
+   * how fast he is moving vertically as a share of the speed he left the
+   * ground at, which splits the arc into roughly equal thirds and keeps
+   * the timing right whatever height the jump reached.
+   *
+   * Both extra frames are optional. Without them this returns the single
+   * jump pose for the whole arc, exactly as it behaved before.
+   */
+  airPose() {
+    const launch = (this.arc && this.arc.v) || 1;
+    const share = this.vy / launch;            // -1 rising, 0 apex, +1 falling
+    if (share > FOX_AIR.levelFrac && this.images.foxFall) {
+      return { img: this.images.foxFall, trim: FOX_TRIMS.foxFall };
+    }
+    if (share > -FOX_AIR.levelFrac && this.images.foxAir) {
+      return { img: this.images.foxAir, trim: FOX_TRIMS.foxAir };
+    }
+    return { img: this.images.foxJump, trim: FOX_TRIMS.foxJump };
+  }
+
   // The current pose, plus (while running with blending on) the next frame
   // and how far we are into the crossfade towards it.
   currentPose(state) {
     if (this.dead) return { img: this.images.foxHit, trim: FOX_TRIMS.foxHit };
-    if (!this.onGround) return { img: this.images.foxJump, trim: FOX_TRIMS.foxJump };
+    if (!this.onGround) return this.airPose();
     if (this.throwTime !== null) {
-      const i = Math.min(Math.floor(this.throwTime / THROW_ANIM.frameDur), 3);
-      const key = "foxThrow" + (i + 1);
-      return { img: this.images[key], trim: FOX_TRIMS[key] };
+      /* Throwing ahead is a two-frame action - wind up, release - against
+       * the backward throw's four, because he does not have to look over
+       * his shoulder first. Falls back to running if the art is absent.
+       */
+      if (this.throwForward) {
+        const i = this.throwTime < THROW_ANIM.frameDur * 1.5 ? 1 : 2;
+        const img = this.images["foxThrowFwd" + i];
+        if (img) return { img, trim: FOX_TRIMS["foxThrowFwd" + i] };
+      } else {
+        const i = Math.min(Math.floor(this.throwTime / THROW_ANIM.frameDur), 3);
+        const key = "foxThrow" + (i + 1);
+        return { img: this.images[key], trim: FOX_TRIMS[key] };
+      }
     }
     if (state === "ready") {
       return { img: this.images.foxLand, trim: FOX_TRIMS.foxLand }; // calm standing pose
@@ -2286,32 +2390,40 @@ class DogDirector {
 
 // An acorn thrown backward (ArrowLeft). Screen-relative arc; stops a dog.
 class AcornShot {
-  constructor(x, y, image) {
+  /* `forward` throws it ahead of the fox instead of back over his
+   * shoulder. The two are aimed at different things - back at the dog on
+   * the ground, forward at the birds - so each shot carries the settings
+   * it was thrown with.
+   */
+  constructor(x, y, image, forward) {
+    const cfg = forward ? THROW_FWD : THROW;
     this.image = image;
+    this.forward = !!forward;
+    this.cfg = cfg;
     this.x = x;
     this.y = y;
-    this.vx = THROW.vx;
-    this.vy = THROW.vy;
+    this.vx = cfg.vx;
+    this.vy = cfg.vy;
     this.spin = 0;
     this.dead = false;
   }
 
   update(dt, groundY) {
-    this.vy += THROW.gravity * dt;
+    this.vy += this.cfg.gravity * dt;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
-    this.spin -= 9 * dt;
-    if (this.y > groundY + 10 || this.x < -40) this.dead = true;
+    this.spin += this.forward ? 9 * dt : -9 * dt;
+    if (this.y > groundY + 10 || this.x < -40 || this.x > GAME_W + 60) this.dead = true;
   }
 
   getBox() {
-    const s = THROW.size;
+    const s = this.cfg.size;
     return { x: this.x - s / 2, y: this.y - s / 2, w: s, h: s };
   }
 
   draw(ctx) {
     const t = ACORN.trim;
-    const s = THROW.size;
+    const s = this.cfg.size;
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.spin);
@@ -2332,33 +2444,76 @@ class Bird {
     this.baseY = centerY - this.h / 2;
     this.y = this.baseY;
     this.age = 0;
+    this.falling = false; // knocked down by a thrown acorn
+    this.fallVy = 0;
+    this.tumble = 0;
+  }
+
+  // Hit by an acorn: it stops flying and drops out of the sky.
+  knockDown() {
+    this.falling = true;
+    this.fallVy = -60;   // a small upward jolt first, then gravity
+    this.tumble = 0;
+    this.hitTime = 0;    // holds the struck frame before it starts tumbling
   }
 
   update(dt, speed) {
     this.age += dt;
+    if (this.falling) {
+      this.fallVy += BIRD.fallGravity * dt;
+      this.y += this.fallVy * dt;
+      this.x -= speed * dt * 0.6;   // it loses its own forward drive
+      this.hitTime += dt;
+      // A slow drift only: the tumbling artwork already does the spinning.
+      this.tumble += 1.4 * dt;
+      return;
+    }
     this.x -= speed * BIRD.speedFactor * dt;
     this.y = this.baseY + Math.sin(this.age * BIRD.bobRate * 2) * BIRD.bobAmp;
   }
 
   isOffscreen() {
-    return this.x + this.w < -30;
+    return this.x + this.w < -30 || this.y > GAME_H + 40;
   }
 
   getHitbox() {
     return shrinkBox(this.x, this.y, this.w, this.h, BIRD.hitbox);
   }
 
-  draw(ctx) {
-    const t = BIRD.trim;
-    const i = Math.floor(this.flapPhase + this.age * BIRD.flapFps) % BIRD.frameCount;
-    const img = this.frames[i];
+  draw(ctx, images) {
+    let t = BIRD.trim;
+    let img;
+    let w = this.w;
+    let h = this.h;
+    if (this.falling) {
+      /* Struck, then tumbling. Both frames are drawn at the SAME pixel
+       * scale as the wing cycle rather than squeezed into its box, so the
+       * bird does not change size the moment it is hit.
+       */
+      const struck = this.hitTime < BIRD.hitHold;
+      const alt = struck ? images && images.birdHit : images && images.birdFall;
+      const altTrim = struck ? BIRD.hitTrim : BIRD.fallTrim;
+      if (alt && altTrim) {
+        img = alt;
+        t = altTrim;
+        const px = this.h / BIRD.trim.sh;
+        w = t.sw * px;
+        h = t.sh * px;
+      }
+    }
+    if (!img) {
+      const i = Math.floor(this.flapPhase + this.age * BIRD.flapFps) % BIRD.frameCount;
+      img = this.frames[i];
+    }
     if (!img) return;
     // Flip to fly leftward; a touch of tilt on top of the wing beat.
     ctx.save();
     ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
     ctx.scale(-1, 1);
-    ctx.rotate(Math.sin(this.age * BIRD.bobRate * 2) * 0.04);
-    ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, -this.w / 2, -this.h / 2, this.w, this.h);
+    ctx.rotate(this.falling
+      ? this.tumble
+      : Math.sin(this.age * BIRD.bobRate * 2) * 0.04);
+    ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, -w / 2, -h / 2, w, h);
     ctx.restore();
   }
 }
@@ -2788,7 +2943,9 @@ class Game {
       } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
         e.preventDefault();
         if (this.state === "running") {
-          if (e.code === "ArrowLeft" && !e.repeat) this.throwAcorn();
+          // Left throws back over his shoulder at the dog, right throws
+          // ahead at the birds.
+          if (!e.repeat) this.throwAcorn(e.code === "ArrowRight");
         } else if (this.state === "ready" && pickableLevels(this.furthest) > 1) {
           // On the intro the arrows pick a setting instead.
           const step = e.code === "ArrowRight" ? 1 : -1;
@@ -2848,7 +3005,7 @@ class Game {
       else this.tryStartFromButton();
     };
     jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump(this.speed)));
-    throwBtn.addEventListener("pointerdown", press(() => this.throwAcorn()));
+    throwBtn.addEventListener("pointerdown", press(() => this.throwAcorn(this.touchThrowForward())));
 
     // Releasing the jump button just stops the extra lift, like Space.
     const release = (e) => {
@@ -2974,6 +3131,7 @@ class Game {
     this.shots = [];
     this.throwCooldown = 0;
     this.pendingRelease = null;
+    this.pendingForward = false;
     // Resume from the furthest stage banked this session.
     this.score = this.checkpoint.score;
     // Dying ends a score for good. A checkpoint only says where to rejoin.
@@ -2986,6 +3144,7 @@ class Game {
     this.popups = [];
     this.acornCount = 0; // acorns are lost on death, wherever you restart
     this.dogsStopped = 0;
+    this.birdsDropped = 0;
     this.acornsCollected = 0;
     this.checkpointFlash = 0;
     this.speed = DIFFICULTY.bands[0].speed;
@@ -3061,14 +3220,28 @@ class Game {
     sound.startMusic(THEME.music);
   }
 
-  throwAcorn() {
+  /* Which way the one thumb button throws. Birds are held back while a
+   * dog is awake - the spawner allows one threat at a time - so the two
+   * directions are never both useful: back over his shoulder if something
+   * is chasing him, ahead at the birds otherwise. A third button would be
+   * one more thing to get wrong mid-run, and there is nothing behind the
+   * fox to hit when no dog is up. The arrow keys stay explicit either way.
+   */
+  touchThrowForward() {
+    return !this.dogDirector.dogs.some(
+      (d) => d.state !== "sleeping" && d.state !== "stunned"
+    );
+  }
+
+  throwAcorn(forward) {
     if (this.acornCount <= 0 || this.throwCooldown > 0) return;
     this.acornCount--;
-    this.throwCooldown = THROW.cooldown;
-    this.fox.startThrow();
+    this.throwCooldown = (forward ? THROW_FWD : THROW).cooldown;
+    this.fox.startThrow(forward);
     sound.sfx("throw");
     // The projectile leaves on the release frame, not at the key press.
     this.pendingRelease = THROW_ANIM.releaseAt;
+    this.pendingForward = !!forward;
   }
 
   /* Goal reached: stop sending hazards, let the fox run on, then slide his
@@ -3272,7 +3445,10 @@ class Game {
       if (this.pendingRelease <= 0) {
         this.pendingRelease = null;
         const fb = this.fox.getHitbox();
-        this.shots.push(new AcornShot(fb.x, fb.y + fb.h * 0.35, this.images.acorn));
+        // Forward throws leave from his front paw rather than behind him.
+        const fromX = this.pendingForward ? fb.x + fb.w : fb.x;
+        this.shots.push(new AcornShot(fromX, fb.y + fb.h * 0.35,
+          this.images.acorn, this.pendingForward));
       }
     }
 
@@ -3291,8 +3467,25 @@ class Game {
     for (const b of this.birds) b.update(dt, this.speed);
     this.birds = this.birds.filter((b) => !b.isOffscreen());
 
-    // Thrown acorns vs the dogs — one acorn takes out one dog.
+    /* Thrown acorns hit one thing each, and only the thing they were
+     * aimed at: back over the shoulder stops a dog, forward knocks a bird
+     * out of the sky. Neither touches an animal standing on the ground -
+     * those have to be jumped.
+     */
     for (const shot of this.shots) {
+      if (shot.forward) {
+        for (const b of this.birds) {
+          if (!b.falling && intersects(shot.getBox(), b.getHitbox())) {
+            shot.dead = true;
+            b.knockDown();
+            this.birdsDropped++;
+            this.awardBonus(SCORING.bird, b.x + b.w / 2, b.y);
+            sound.sfx("stun");
+            break;
+          }
+        }
+        continue;
+      }
       for (const d of this.dogDirector.dogs) {
         if (d.state !== "stunned" && intersects(shot.getBox(), d.getShotBox())) {
           shot.dead = true;
@@ -3315,7 +3508,8 @@ class Game {
     }
     if (this.state === "running") {
       for (const b of this.birds) {
-        if (intersects(foxBox, b.getHitbox())) {
+        // One already knocked down is tumbling, not hunting.
+        if (!b.falling && intersects(foxBox, b.getHitbox())) {
           this.endRun();
           break;
         }
@@ -3751,7 +3945,8 @@ class Game {
     const rows = [
       ["ENTER", "start / restart"],
       ["SPACE", "jump"],
-      ["LEFT", "throw acorn"],
+      ["LEFT", "acorn at the dog"],
+      ["RIGHT", "acorn at the birds"],
     ];
     const rowH = 32;
     const panelW = 260;
@@ -3868,7 +4063,7 @@ class Game {
     for (const ob of this.obstacles) ob.draw(ctx);
     for (const ac of this.acorns) ac.draw(ctx);
     for (const d of this.dogDirector.dogs) d.draw(ctx);
-    for (const b of this.birds) b.draw(ctx);
+    for (const b of this.birds) b.draw(ctx, this.images);
     const diving = this.finish && this.finish.diveT > 0;
     if (diving) {
       /* Draw the fox first so the burrow covers him: he shrinks into the

@@ -80,7 +80,42 @@ for theme in ("field", "woodland", "mountain"):
                                 f"      game.js  sx {want[0]}, sy {want[1]}, sw {want[2]}, sh {want[3]}\n"
                                 f"      artwork  sx {got[0]}, sy {got[1]}, sw {got[2]}, sh {got[3]}")
 
+# --- the fox's own frames, including any not drawn yet -----------------
+FOX = ROOT / "assets" / "shared" / "fox"
+# Only the frames whose trims are plain content boxes. The older fox poses
+# (jump, land, hit, the four backward-throw frames and the run union) were
+# hand-adjusted so the nose and the hitbox's front edge line up across
+# poses, so they are deliberately NOT their own bboxes - checking them
+# would report drift that is really tuning.
+fox_map = {
+    "foxAir": "jump_horizontal.png", "foxFall": "jump_dive.png",
+    "foxThrowFwd1": "throw_front_01_windup.png",
+    "foxThrowFwd2": "throw_front_02_release.png",
+}
+fox_block = re.search(r"const FOX_TRIMS = \{(.*?)\n\};", src, re.S)
+waiting = []
+if fox_block:
+    for key, fname in fox_map.items():
+        m = re.search(key + r": \{ sx: (\d+), sy: (\d+), sw: (\d+), sh: (\d+)",
+                      fox_block.group(1))
+        f = FOX / fname
+        if not m:
+            continue
+        if not f.exists():
+            waiting.append(f"  {fname} (used by {key})")
+            continue
+        checked += 1
+        want = tuple(int(v) for v in m.groups())
+        got = bbox(f)
+        if got != want:
+            problems.append(f"  fox/{key}: {fname}\n"
+                            f"      game.js  sx {want[0]}, sy {want[1]}, sw {want[2]}, sh {want[3]}\n"
+                            f"      artwork  sx {got[0]}, sy {got[1]}, sw {got[2]}, sh {got[3]}")
 print(f"checked {checked} baked trims against the artwork")
+if waiting:
+    print(f"\n{len(waiting)} not drawn yet - their trims are placeholders, and this\n"
+          f"will print the real numbers the moment the files appear:")
+    print("\n".join(waiting))
 if problems:
     print(f"\n{len(problems)} out of date - the art moved since the trim was measured:\n")
     print("\n".join(problems))
