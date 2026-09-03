@@ -96,7 +96,10 @@ function makeTheme(dir, label, opts) {
     if (borrowed(sub, role)) return `${fb}/${sub}/${def}`;
     const named = files[sub] && files[sub][role];
     if (!named) return p(sub, def);
-    const own = `assets/themes/${dir}/${sub}/${named}`;
+    // A name with a "/" is a path inside the theme, so a role's resting
+    // sprite can be one of its reaction frames without a second copy.
+    const own = `assets/themes/${dir}/${
+      named.includes("/") ? named : sub + "/" + named}`;
     return fb ? [own, `${fb}/${sub}/${def}`] : own;
   };
   const qList = (sub, role, defs) => {
@@ -579,7 +582,12 @@ const THEMES = {
       edge: { trim: { sx: 286, sy: 250, sw: 226, sh: 430 }, surface: 323 },
     },
     files: {
-      obstacles: { hedgehog: "frog.png", rabbit: "gator.png", rock: "turtle.png",
+      /* The frog and the turtle rest hunkered down and RISE as he nears,
+       * rather than starting up and flattening - so their resting sprite
+       * is the last reaction frame and the standing one is the payoff.
+       */
+      obstacles: { hedgehog: "reactions/frog_2.png", rabbit: "gator.png",
+                   rock: "reactions/turtle_2.png",
                    sentry: "snake.png", log: "log_mangrove.png",
                    stump: "roots.png", boulder: "river_rock.png" },
       flyer: { fly: seq(6, (i) => `heron_fly_${pad2(i + 1)}.png`),
@@ -593,34 +601,35 @@ const THEMES = {
       },
     },
     reactions: {
-      hedgehog: ["frog_1.png", "frog_2.png"],
-      rock: ["turtle_1.png", "turtle_2.png"],
+      hedgehog: ["frog_1.png", "obstacles/frog.png"],
+      rock: ["turtle_1.png", "obstacles/turtle.png"],
       sentry: ["snake_1.png", "snake_2.png", "snake_3.png",
                "snake_4.png", "snake_5.png"],
       rabbit: ["gator_1.png", "gator_2.png", "gator_3.png",
                "gator_4.png", "gator_5.png"],
     },
     sprites: {
-      // Sits up, then presses itself flat. One constant scale, so it
-      // spreads as it drops instead of shrinking away.
+      // Squat and low until he is close, then up on its legs.
       hedgehog: {
-        h: 34, weight: 1.7, sink: 4, poseFit: "scale", hideNotice: 240,
-        trim: { sx: 111, sy: 55, sw: 290, sh: 245 },
+        h: 22, rearHeight: 40, weight: 1.7, sink: 4, rearNotice: 400,
+        trim: { sx: 86, sy: 193, sw: 340, sh: 107 },      // pressed flat
         hitbox: { left: 0.12, right: 0.12, top: 0.14, bottom: 0.02 },
         poses: [
-          { trim: { sx: 102, sy: 118, sw: 308, sh: 182 } },
-          { trim: { sx: 86, sy: 193, sw: 340, sh: 107 } },
+          { trim: { sx: 102, sy: 118, sw: 308, sh: 182 } }, // half up
+          { trim: { sx: 111, sy: 55, sw: 290, sh: 245 } },  // sitting tall
         ],
       },
-      // Withdraws into its shell as he leaps.
+      /* Shut in its shell, then out and walking. Flipped, like every other
+       * animal that has to be facing the fox rather than away from him.
+       */
       rock: {
-        h: 36, weight: 1.9, availableFrom: 250, animal: true, sink: 4,
-        poseFit: "scale",
-        trim: { sx: 70, sy: 70, sw: 372, sh: 230 },
-        hitbox: { left: 0.10, right: 0.14, top: 0.12, bottom: 0.02 },
+        h: 26, rearHeight: 40, weight: 1.9, availableFrom: 250,
+        animal: true, flip: true, sink: 4, rearNotice: 400,
+        trim: { sx: 127, sy: 120, sw: 258, sh: 180 },     // shut up tight
+        hitbox: { left: 0.14, right: 0.10, top: 0.12, bottom: 0.02 },
         poses: [
-          { trim: { sx: 121, sy: 102, sw: 270, sh: 198 } },
-          { trim: { sx: 127, sy: 120, sw: 258, sh: 180 } },
+          { trim: { sx: 121, sy: 102, sw: 270, sh: 198 } }, // head out
+          { trim: { sx: 70, sy: 70, sw: 372, sh: 230 } },   // up and walking
         ],
       },
       /* Coiled, then up into an S, then STRIKING forward through the air
@@ -1154,14 +1163,20 @@ const DOG = {
   frames: THEME.chaser, // sleep / waking / headShake / alert / crash / bite
   // Per-pose `sink` pushes the sprite down into the grass (art has soft
   // transparent edges at the bottom); default is 3 when unset.
+  /* `drop` pushes the DRAWN sprite down without moving the box, because
+   * several of these crops have soft, all-but-transparent rows under the
+   * paws: the hitbox was in the right place and the dog was floating
+   * inside it, worst on bite (9px) and run (6px). Draw only - the box, and
+   * so every bit of chase tuning, is untouched.
+   */
   poses: {
-    sleep: { trim: { sx: 5, sy: 11, sw: 503, sh: 330 }, h: 44, sink: 7 },
-    waking: { trim: { sx: 11, sy: 75, sw: 486, sh: 177 }, h: 34, sink: 5 },
-    headShake: { trim: { sx: 0, sy: 10, sw: 508, sh: 331 }, h: 50 },
-    alert: { trim: { sx: 8, sy: 6, sw: 494, sh: 319 }, h: 48 },
-    run: { trim: { sx: 0, sy: 0, sw: 512, sh: 341 }, h: 56 },
-    crash: { trim: { sx: 0, sy: 6, sw: 507, sh: 335 }, h: 54 },
-    bite: { trim: { sx: 8, sy: 4, sw: 500, sh: 337 }, h: 58 },
+    sleep: { trim: { sx: 5, sy: 11, sw: 503, sh: 330 }, h: 44, sink: 7, drop: 5 },
+    waking: { trim: { sx: 11, sy: 75, sw: 486, sh: 177 }, h: 34, sink: 5, drop: -2 },
+    headShake: { trim: { sx: 0, sy: 10, sw: 508, sh: 331 }, h: 50, drop: 3 },
+    alert: { trim: { sx: 8, sy: 6, sw: 494, sh: 319 }, h: 48, drop: 4 },
+    run: { trim: { sx: 0, sy: 0, sw: 512, sh: 341 }, h: 56, drop: 9 },
+    crash: { trim: { sx: 0, sy: 6, sw: 507, sh: 335 }, h: 54, drop: 5 },
+    bite: { trim: { sx: 8, sy: 4, sw: 500, sh: 337 }, h: 58, drop: 12 },
   },
   /* Eight frames of the dog clearing something. Chasing, it used to run
    * straight through obstacles; now it jumps them.
@@ -1199,10 +1214,21 @@ const DOG = {
     airFrom: 0.24,     // feet leave the ground here...
     airTo: 0.80,       // ...and are back down here
   },
-  wakeDurations: { waking: 0.35, headShake: 0.3, alert: 0.25 },
+  /* The wake, in PX OF GROUND rather than seconds. Timed, it ran for the
+   * same 0.9s however fast the level was going, so the dog slid a fixed
+   * distance backwards - 270px at mid speed - and left the screen before
+   * it had finished getting up, then reappeared from the left edge. In
+   * distance it always finishes the same distance back, whatever the speed.
+   */
+  wakeDistances: { waking: 46, headShake: 38, alert: 32 },
   runFps: 20,
   chase: {
-    base: 60,            // closing speed px/s at full rubber-band...
+    /* 60 before the wake was measured in ground rather than seconds. That
+     * change keeps the dog on screen but leaves it closer when the chase
+     * begins, which cut the time from waking to being caught from about
+     * 5.5s to 4. At 40 it is 4.4-5.9s again, depending on speed.
+     */
+    base: 40,            // closing speed px/s at full rubber-band...
     perSpeed: 0.10,      // ...plus this fraction of current game speed
     rubberBandDist: 250, // full closing speed beyond this gap
     rubberBandMin: 0.55, // slowdown when right behind the fox — a real
@@ -2586,6 +2612,7 @@ class Dog {
     if (this.state === "sleeping") {
       this.state = "waking";
       this.stateTime = 0;
+      this.wakeRun = 0;
       this.syncBoxToPose();
     }
   }
@@ -2621,9 +2648,10 @@ class Dog {
       case "headShake":
       case "alert": {
         this.x -= speed * dt;
+        this.wakeRun = (this.wakeRun || 0) + speed * dt;
         const order = ["waking", "headShake", "alert"];
-        const dur = DOG.wakeDurations[this.state];
-        if (this.stateTime >= dur) {
+        const dur = DOG.wakeDistances[this.state];
+        if (this.wakeRun >= dur) {
           const next = order[order.indexOf(this.state) + 1];
           if (next) {
             this.state = next;
@@ -2634,6 +2662,7 @@ class Dog {
             if (this.x < DOG.chase.entryX) this.x = DOG.chase.entryX;
           }
           this.stateTime = 0;
+          this.wakeRun = 0;
           this.syncBoxToPose();
         }
         break;
@@ -2698,8 +2727,9 @@ class Dog {
       ctx.drawImage(pose.img, t.sx, t.sy, t.sw, t.sh, dx, dy, w, h);
       return;
     }
-    const t = DOG.poses[pose.key].trim;
-    ctx.drawImage(pose.img, t.sx, t.sy, t.sw, t.sh, this.x, this.y, this.w, this.h);
+    const p = DOG.poses[pose.key];
+    ctx.drawImage(pose.img, p.trim.sx, p.trim.sy, p.trim.sw, p.trim.sh,
+      this.x, this.y + (p.drop || 0), this.w, this.h);
   }
 }
 
