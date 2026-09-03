@@ -19,7 +19,7 @@ The ledge is intended to replace the normal grass and dirt layers for this theme
 ## Obstacles and reactions
 
 - `obstacles/marmot.png` with `reactions/marmot_1.png` and `marmot_2.png`
-- `obstacles/ram.png` with `reactions/ram_1.png` through `ram_4.png`
+- `obstacles/ram.png` with `reactions/ram_1.png` through `ram_5.png` - wake, stand, pounce, land
 - `obstacles/boulder.png`, `log_pine.png`, and `spire.png`
 
 ## Flyer
@@ -51,8 +51,8 @@ tuning carries across settings. In this theme they are cast as:
 | --- | --- |
 | `hedgehog` | skunk (five poses, ending in the spray) |
 | `rock` | marmot (two cowering poses) |
-| `sentry` | ram (rears to 58px, from score 500) |
-| `rabbit` | bear (rears to 74px, from score 1100) |
+| `sentry` | ram (wakes, pounces, lands - from score 500) |
+| `rabbit` | bear (wakes, pounces, lands - from score 1100) |
 | `log` | fallen pine |
 | `stump` | rock spire |
 | `boulder` | scree pile |
@@ -73,11 +73,9 @@ resting width would balloon it at every step.
 
 ## Known art problems
 
-- `reactions/ram_1.png` and `ram_2.png` are sliced through: the ram's body
-  ends at a straight vertical edge and a piece of another frame is stuck to
-  its left. Both are unused - the ram rises straight from `obstacles/ram.png`
-  to `ram_3` and `ram_4` - so a regenerated pair would give it a smoother
-  rise. Three poses over half a second is watchable; five would be better.
+- The ram and bear reaction sets were regenerated as six-pose wake-to-pounce
+  sequences, ending with a four-legged landing frame. They are clean - the
+  sliced ram frames noted here before are gone.
 - `obstacles/spire.png` carries a fragment of the pine log to the left of the
   spire, and `obstacles/boulder.png` a sliver of another frame at its right
   edge. Both are excluded by the trims in `game.js` rather than erased.
@@ -94,3 +92,37 @@ level can be checked without playing up to it. It sticks (a tablet only
 needs the URL once); `?test=0` turns it off again. It is scaffolding -
 `TEST_LEVELS` in `game.js`, and the two short blocks that read it, come out
 before the game goes to real players.
+
+## How a pounce is put together
+
+The bear and the ram do not just stand up: they wake, get up, LEAP a short
+way at the fox, and land. Four things in `game.js` make that work.
+
+`sheet` and `floor` say that all six frames share one stage rect and one
+canvas row for the ground, so a single scale serves the set. That matters
+because the leap frames are drawn genuinely airborne - the bear's feet 81px
+up its own canvas, the ram's 146px - and floor-anchoring floats them by
+exactly that much instead of dumping them back on the grass.
+
+`lungeBy` is how far it actually travels at the fox: 28px for the bear,
+24px for the ram, eased so it is quick off the mark and settles into the
+landing. Small on purpose. The point is that it reads as coming at him.
+
+The leap POSE is held until the animal has gone past the fox, not just
+until the movement finishes. Without that the fox meets the tidy landing
+frame, which on the ram is barely half the height, and the whole pounce
+counts for nothing - it measured as the easiest obstacle in the game.
+
+`plannedHeight` is derived from the frames rather than written by hand, so
+the spawner reserves room for the leap's full height and re-cut artwork
+cannot quietly make one unjumpable.
+
+Measured tap windows, against the levels either side:
+
+| | tightest | widest |
+| --- | --- | --- |
+| field | 0.425s | 0.496s |
+| woodland | 0.354s | 0.458s |
+| mountain | 0.325s | 0.462s |
+
+The bear is 0.329s and the ram 0.408s.

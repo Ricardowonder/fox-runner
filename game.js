@@ -331,57 +331,54 @@ const THEMES = {
     reactions: {
       hedgehog: ["skunk_1.png", "skunk_2.png", "skunk_3.png",
                  "skunk_4.png", "skunk_5.png"],
-      rabbit: ["bear_1.png", "bear_2.png", "bear_3.png", "bear_4.png"],
+      rabbit: ["bear_1.png", "bear_2.png", "bear_3.png", "bear_4.png", "bear_5.png"],
       rock: ["marmot_1.png", "marmot_2.png"],
-      /* ram_1 and ram_2 came back from the art pass sliced through - the
-       * body cut off at a straight vertical edge, with a piece of another
-       * frame stuck on the left - so the rise runs straight from the
-       * resting sprite to the two good upright poses.
-       */
-      sentry: ["obstacles/ram.png", "ram_3.png", "ram_4.png"],
+      sentry: ["ram_1.png", "ram_2.png", "ram_3.png", "ram_4.png", "ram_5.png"],
     },
     sprites: {
-      /* The bear sleeps across the path and wakes as the fox bears down:
-       * dozing, sitting up, onto all fours, then rearing to swipe. Bigger
-       * than the woodland badger it echoes - 42px growing to 74px, the
-       * tallest thing in the game.
+      /* The bear sleeps across the path, wakes as the fox bears down, gets
+       * up, then LEAPS a short way at him and lands on all fours. `sheet`
+       * is the rect all six frames share and `floor` the canvas row its
+       * feet stand on, so one scale serves the whole set and the leap
+       * frame - drawn with its feet 81px up its own canvas - floats by
+       * exactly that much.
        *
-       * Held back to 1100 rather than the badger's 500. At 76px reared
-       * and appearing earlier its timing window measured 0.26s, tighter
-       * than the field opening that proved too hard for young players.
-       * At 74px arriving here it is 0.31s: harder than the badger's
-       * 0.338s, as a bear should be, without crossing that line.
+       * The leap is only 28px. It is there so the bear reads as coming at
+       * the fox rather than waiting to be jumped; every pixel of it is
+       * room the spawner has already reserved.
        */
       rabbit: {
-        h: 42, rearHeight: 74, availableFrom: 1100, sink: 6,
-        rearNotice: 430, weight: 2.2,
-        trim: { sx: 45, sy: 145, sw: 422, sh: 192 },
-        hitbox: { left: 0.12, right: 0.22, top: 0.10, bottom: 0.02 },
+        h: 50, availableFrom: 1100, sink: 4, weight: 2.2,
+        sheet: { sx: 25, sw: 461 }, floor: 341,
+        rearNotice: 470, riseTime: 0.42,
+        lungeBy: 28, lungeAt: 130, lungeTime: 0.24,
+        trim: { sx: 32, sy: 129, sw: 447, sh: 212 },
+        hitbox: { left: 0.14, right: 0.22, top: 0.12, bottom: 0.02 },
         poses: [
-          { trim: { sx: 45, sy: 145, sw: 422, sh: 192 } },
-          { trim: { sx: 65, sy: 76, sw: 382, sh: 261 } },
-          { trim: { sx: 59, sy: 3, sw: 393, sh: 334 } },
-          { trim: { sx: 117, sy: 3, sw: 278, sh: 334 } },
+          { trim: { sx: 25, sy: 113, sw: 461, sh: 228 } }, // waking
+          { trim: { sx: 50, sy: 36, sw: 412, sh: 305 } },  // up on all fours
+          { trim: { sx: 108, sy: 31, sw: 296, sh: 310 } }, // reared
+          { trim: { sx: 25, sy: 0, sw: 461, sh: 260 } },   // leaping, airborne
+          { trim: { sx: 40, sy: 11, sw: 432, sh: 330 } },  // landed
         ],
       },
-      /* The ram carries the rearing idea through the early game, where the
-       * bear is far too big to appear: it stands to 58px, comfortably
-       * under a tap's 108px apex, and arrives at 500 - the same point the
-       * woodland badger does. Between them the mountain has something
-       * standing up to the fox from the first stage to the last.
+      /* The ram does the same thing earlier and smaller: it is what gives
+       * the mountain something coming at the fox from its first stage,
+       * where the bear is far too big to appear.
        */
       sentry: {
-        h: 40, rearHeight: 70, availableFrom: 500, sink: 5,
-        // Rises over half a second from 470px out. At the shared 0.28s it
-        // snapped upright between frames and was never really seen - and
-        // with two of its four rise frames unusable it needs the room.
-        rearNotice: 470, riseTime: 0.5, weight: 2,
-        trim: { sx: 14, sy: 11, sw: 483, sh: 330 },
-        hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
+        h: 40, availableFrom: 500, sink: 4, weight: 2,
+        sheet: { sx: 98, sw: 311 }, floor: 341,
+        rearNotice: 430, riseTime: 0.38,
+        lungeBy: 24, lungeAt: 130, lungeTime: 0.22,
+        trim: { sx: 106, sy: 180, sw: 299, sh: 161 },
+        hitbox: { left: 0.14, right: 0.20, top: 0.12, bottom: 0.02 },
         poses: [
-          { trim: { sx: 14, sy: 11, sw: 483, sh: 330 } }, // on all fours
-          { trim: { sx: 198, sy: 11, sw: 181, sh: 330 } },
-          { trim: { sx: 149, sy: 11, sw: 213, sh: 330 } },
+          { trim: { sx: 125, sy: 113, sw: 261, sh: 228 } }, // head up
+          { trim: { sx: 119, sy: 41, sw: 274, sh: 300 } },  // reared
+          { trim: { sx: 98, sy: 139, sw: 272, sh: 181 } },  // crouched to spring
+          { trim: { sx: 98, sy: 0, sw: 272, sh: 195 } },    // leaping, airborne
+          { trim: { sx: 103, sy: 175, sw: 306, sh: 166 } }, // landed
         ],
       },
       /* The skunk is the one animal in the game NOT flipped: it is drawn
@@ -1097,6 +1094,20 @@ function bindTheme() {
       return { key, trim: poses[i].trim, wScale: poses[i].wScale || 1 };
     });
   }
+  /* A pouncing animal is tallest in mid-leap, and that is the height the
+   * spawner has to leave room to clear. Derived from the frames rather
+   * than written by hand, so re-cut artwork cannot silently make one
+   * unjumpable.
+   */
+  for (const type of Object.values(OBSTACLE_TYPES)) {
+    if (!type.lungeBy || !type.hide || !type.hide.length) continue;
+    const px = type.h / type.trim.sh;
+    const floor = type.floor || (type.trim.sy + type.trim.sh);
+    type.rearHeight = Math.max(
+      type.h,
+      ...type.hide.map((p) => (floor - p.trim.sy) * px)
+    );
+  }
   DOG.frames = THEME.chaser;
   ACORN.src = THEME.collectible.item;
   for (const [name, type] of Object.entries(OBSTACLE_TYPES)) {
@@ -1159,7 +1170,7 @@ function applyThemeSprites() {
   }
   // Anything that rears is too tall to be half of a one-jump close pair.
   for (const t of Object.values(OBSTACLE_TYPES)) {
-    if (t.rearHeight) t.pairable = false;
+    if (t.rearHeight || t.lungeBy) t.pairable = false;
   }
 }
 
@@ -1793,10 +1804,20 @@ class Obstacle {
   constructor(typeName, x, groundY) {
     this.typeName = typeName;
     this.type = OBSTACLE_TYPES[typeName];
+    this.groundY = groundY;
     this.w = this.type.w;
     this.h = this.type.h;
     this.x = x;
     this.y = groundY - this.h + (this.type.sink || 0);
+    /* Pouncing animals are drawn from one shared stage rect at a constant
+     * scale, so `anchorX` - where that stage sits in the world - is what
+     * scrolls, and each frame's own place within it follows.
+     */
+    if (this.type.lungeBy) {
+      this.anchorX = x;
+      this.phase = "resting";
+      this.leap = 0;
+    }
     this.passed = false; // hook for later phases (chasing behaviour, etc.)
     this.hideLevel = 0;  // 0 normal, 1 crouching, 2 fully tucked
     this.hideHold = 0;   // keeps the pose a moment after the fox passes
@@ -1806,8 +1827,90 @@ class Obstacle {
 
   update(dt, speed, fox, images) {
     this.x -= speed * dt;
-    if (this.type.rearHeight && fox) this.updateRear(dt, fox, images);
+    if (this.type.lungeBy && fox) this.updatePounce(dt, speed, fox, images);
+    else if (this.type.rearHeight && fox) this.updateRear(dt, fox, images);
     else if (this.type.hide && fox) this.updateHide(dt, fox, images);
+  }
+
+  /* Where one frame of a pounce sequence sits, in world pixels.
+   * Every frame shares a stage rect and a single scale, so the artist's
+   * own baseline is kept: the leap frames are drawn genuinely airborne -
+   * the bear's feet 81px up its canvas, the ram's 146px - and land at the
+   * right height above the ground without any per-frame fudging.
+   */
+  poseGeometry(frame) {
+    const t = this.type;
+    const px = t.h / t.trim.sh;                  // constant across the set
+    const sheet = t.sheet || { sx: t.trim.sx, sw: t.trim.sw };
+    const floor = t.floor || (t.trim.sy + t.trim.sh);
+    // Mirrored sets measure their offset from the stage's other edge, or
+    // the animal slides sideways every time the frame changes.
+    const dx = t.flip
+      ? (sheet.sx + sheet.sw) - (frame.sx + frame.sw)
+      : frame.sx - sheet.sx;
+    return {
+      w: frame.sw * px,
+      h: frame.sh * px,
+      x: this.anchorX + dx * px,
+      lift: (floor - (frame.sy + frame.sh)) * px, // 0 when its feet are down
+    };
+  }
+
+  /* Wake, get up, then LEAP a short way at the fox and land. The leap is
+   * deliberately small - it is there so the animal reads as coming at him
+   * rather than waiting to be jumped, and every px of it is room the
+   * spawner has already reserved (see plannedHeight and lungeBy).
+   */
+  updatePounce(dt, speed, fox, images) {
+    const t = this.type;
+    const poses = t.hide;
+    if (!poses || poses.length < 3) return;
+    this.anchorX -= speed * dt;
+
+    const fb = fox.getHitbox();
+    const gap = this.x - (fb.x + fb.w);
+    if (this.phase === "resting" && gap < (t.rearNotice || OBSTACLE_REAR.noticeDistance)) {
+      this.phase = "rising";
+    }
+    if (this.phase === "rising") {
+      this.rear = Math.min(1, this.rear + dt / (t.riseTime || OBSTACLE_REAR.riseTime));
+      if (this.rear >= 1) this.phase = "ready";
+    }
+    if ((this.phase === "rising" || this.phase === "ready") && gap < (t.lungeAt || 160)) {
+      this.phase = "leaping";
+      this.leap = 0;
+    }
+    if (this.phase === "leaping") {
+      const was = this.leap;
+      this.leap = Math.min(1, this.leap + dt / (t.lungeTime || 0.24));
+      // Ease out: off the mark quickly, settling into the landing.
+      const ease = (v) => 1 - (1 - v) * (1 - v);
+      this.anchorX -= t.lungeBy * (ease(this.leap) - ease(was));
+      /* Stay in the air until it has actually gone past him. The pose the
+       * fox has to clear should be the leap - that is the whole point of
+       * a pounce - and not the tidy four-legged landing after it, which
+       * on the ram is barely half the height.
+       */
+      if (this.leap >= 1 && gap < -this.w) this.phase = "landed";
+    }
+
+    // Last two poses are the leap and the landing; the rest are the rise.
+    const rise = Math.max(1, poses.length - 2);
+    let idx;
+    if (this.phase === "resting") idx = -1;
+    else if (this.phase === "rising") idx = Math.min(rise - 1, Math.floor(this.rear * rise));
+    else if (this.phase === "ready") idx = rise - 1;
+    else if (this.phase === "leaping") idx = poses.length - 2;
+    else idx = poses.length - 1;
+
+    this.hideLevel = idx + 1;
+    this.hideImage = idx >= 0 ? images[poses[idx].key] : null;
+    const frame = idx >= 0 ? poses[idx].trim : t.trim;
+    const g = this.poseGeometry(frame);
+    this.w = g.w;
+    this.h = g.h;
+    this.x = g.x;
+    this.y = this.groundY - this.h - g.lift + (t.sink || 0);
   }
 
   // Stand up as the fox approaches, growing the drawn size AND the hitbox.
@@ -1896,7 +1999,11 @@ class Obstacle {
       const pose = this.type.hide[this.hideLevel - 1];
       img = this.hideImage;
       t = pose.trim;
-      if (this.type.rearHeight) {
+      if (this.type.lungeBy) {
+        // updatePounce already placed and sized this frame.
+        w = this.w;
+        h = this.h;
+      } else if (this.type.rearHeight) {
         // Rearing types already grew this.h; draw the pose at full height.
         h = this.h;
         w = h * (t.sw / t.sh);
