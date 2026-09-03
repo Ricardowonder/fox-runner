@@ -394,7 +394,7 @@ const THEMES = {
        * sequence is over before it reads.
        */
       hedgehog: {
-        h: 32, weight: 1.7, sink: 6, flip: false,
+        h: 38, weight: 1.7, sink: 6, flip: false,
         poseFit: "scale", hideNotice: 340,
         trim: { sx: 81, sy: 100, sw: 350, sh: 231 },
         // Unflipped the tail is still the trailing edge, so the generous
@@ -490,12 +490,25 @@ const THEMES = {
       { img: "treesMid", h: 52, parallax: 0.22, mirror: false,
         src: { srcX0: 19, srcX1: 1185, srcY0: 300, srcY1: 597 } },
     ],
-    // Thinner and higher than the woodland: D major pentatonic.
+    /* A yodel, in G major. The other two levels walk up and down a
+     * pentatonic scale, which is why they sound like each other; this one
+     * is built the way a yodel is - the voice breaking up an OCTAVE and
+     * dropping back, three times in the first bar, over an oom-pah bass
+     * alternating root and fifth. Every leaping note is a G major triad
+     * tone, so however fast the tempo winds up it stays sweet.
+     *
+     * Rooted at G4 rather than D5: the leaps need somewhere to go, and
+     * from any higher the top of them turns shrill.
+     */
     music: {
-      root: 74, // D5
-      lead: [0, 4, 7, 9, 7, 4, 2, 4, 0, 7, 9, 12, 9, 7, 4, null],
-      bass: [-12, null, null, null, -5, null, null, null,
-             -12, null, null, null, -3, null, null, null],
+      root: 67, // G4
+      //      yo  del  ay   ee   oo        <- the breaks are the octaves
+      lead: [0, 12, 4, 16, 7, 19, 12, 7,
+             0, 12, 16, 12, 9, 7, 2, null],
+      // Oom-pah: root on the beat, fifth off it. Last half turns to D so
+      // the loop has somewhere to come home from.
+      bass: [-12, null, -5, null, -12, null, -5, null,
+             -12, null, -5, null, -17, null, -10, null],
     },
   }),
 };
