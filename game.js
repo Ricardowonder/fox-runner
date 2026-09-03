@@ -534,21 +534,118 @@ const THEMES = {
              -12, null, -5, null, -17, null, -10, null],
     },
   }),
-  /* Level 4, still being drawn. The bank stops and starts here: `river`
-   * turns on the crossings, and the fox goes in the water if he runs out
-   * of bank. Everything borrows the field until its own artwork lands, so
-   * it can be played and tuned now - the shapes in the water are stand-ins
-   * drawn by the engine, not sprites.
+  /* Level 4: the swamp. The bank stops and starts here - `river` turns on
+   * the crossings, and a fox who runs out of bank goes in the water.
+   *
+   * Its cast is drawn on a 341 canvas but stands on y=300 rather than the
+   * canvas floor, so `floor: 300` runs through all of it. The gator's
+   * lunge and the snake's strike are drawn genuinely airborne above that
+   * line and float by exactly that much.
+   *
+   * The ground, sky and scenery are still the field's: only the animals
+   * and the water have been drawn so far.
    */
-  river: makeTheme("river", "River", {
+  swamp: makeTheme("swamp", "Swamp", {
     fallback: "field",
-    inherits: ["ground", "chaser", "collectible", "pages", "scenery.bushes",
-               "foxhole", "obstacles.boulder", "obstacles.sentry",
-               "obstacles.hedgehog", "obstacles.rabbit", "obstacles.rock",
-               "obstacles.log", "obstacles.stump", "flyer", "scenery.trees"],
+    // No scenery of its own yet, so all of it comes from the field. That
+    // is why a swamp currently runs through a green meadow.
+    inherits: ["ground", "chaser", "collectible", "pages", "scenery", "foxhole"],
     river: true,
+    files: {
+      obstacles: { hedgehog: "frog.png", rabbit: "gator.png", rock: "turtle.png",
+                   sentry: "snake.png", log: "log_mangrove.png",
+                   stump: "roots.png", boulder: "river_rock.png" },
+      flyer: { fly: seq(6, (i) => `heron_fly_${pad2(i + 1)}.png`),
+               hit: "heron_hit.png", fall: "heron_fall.png" },
+    },
+    reactions: {
+      hedgehog: ["frog_1.png", "frog_2.png"],
+      rock: ["turtle_1.png", "turtle_2.png"],
+      sentry: ["snake_1.png", "snake_2.png", "snake_3.png",
+               "snake_4.png", "snake_5.png"],
+      rabbit: ["gator_1.png", "gator_2.png", "gator_3.png",
+               "gator_4.png", "gator_5.png"],
+    },
+    sprites: {
+      // Sits up, then presses itself flat. One constant scale, so it
+      // spreads as it drops instead of shrinking away.
+      hedgehog: {
+        h: 34, weight: 1.7, sink: 4, poseFit: "scale", hideNotice: 240,
+        trim: { sx: 111, sy: 55, sw: 290, sh: 245 },
+        hitbox: { left: 0.12, right: 0.12, top: 0.14, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 102, sy: 118, sw: 308, sh: 182 } },
+          { trim: { sx: 86, sy: 193, sw: 340, sh: 107 } },
+        ],
+      },
+      // Withdraws into its shell as he leaps.
+      rock: {
+        h: 36, weight: 1.9, availableFrom: 250, animal: true, sink: 4,
+        poseFit: "scale",
+        trim: { sx: 70, sy: 70, sw: 372, sh: 230 },
+        hitbox: { left: 0.10, right: 0.14, top: 0.12, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 121, sy: 102, sw: 270, sh: 198 } },
+          { trim: { sx: 127, sy: 120, sw: 258, sh: 180 } },
+        ],
+      },
+      /* Coiled, then up into an S, then STRIKING forward through the air
+       * before dropping back into its coil. The strike frame is drawn off
+       * the baseline; the landing one is back down on it.
+       */
+      sentry: {
+        h: 32, availableFrom: 500, sink: 3, weight: 2,
+        sheet: { sx: 102, sw: 308 }, floor: 300,
+        rearNotice: 430, riseTime: 0.38,
+        lungeBy: 26, lungeAt: 165, lungeTime: 0.22,
+        trim: { sx: 128, sy: 196, sw: 256, sh: 104 },
+        hitbox: { left: 0.14, right: 0.16, top: 0.12, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 144, sy: 119, sw: 224, sh: 181 } }, // head up
+          { trim: { sx: 147, sy: 46, sw: 218, sh: 254 } },  // rising
+          { trim: { sx: 162, sy: 30, sw: 188, sh: 270 } },  // reared to strike
+          { trim: { sx: 102, sy: 138, sw: 308, sh: 122 } }, // striking, airborne
+          { trim: { sx: 128, sy: 197, sw: 256, sh: 103 } }, // back in its coil
+        ],
+      },
+      /* Basking, then up on its legs, then a lunge. The longest animal in
+       * the game, so it is held back to 1100 like the mountain's bear.
+       */
+      rabbit: {
+        h: 30, availableFrom: 1100, sink: 3, weight: 2.2,
+        sheet: { sx: 41, sw: 430 }, floor: 300,
+        rearNotice: 470, riseTime: 0.42,
+        lungeBy: 28, lungeAt: 165, lungeTime: 0.24,
+        trim: { sx: 41, sy: 188, sw: 430, sh: 112 },
+        hitbox: { left: 0.12, right: 0.20, top: 0.12, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 41, sy: 139, sw: 430, sh: 161 } }, // eyes open
+          { trim: { sx: 41, sy: 91, sw: 430, sh: 209 } },  // up on its legs
+          { trim: { sx: 41, sy: 140, sw: 430, sh: 160 } }, // gathering
+          { trim: { sx: 41, sy: 74, sw: 430, sh: 186 } },  // lunging, airborne
+          // Drawn at the same height as the lunge, but it has landed.
+          { trim: { sx: 41, sy: 69, sw: 430, sh: 191 }, sit: true },
+        ],
+      },
+      log: { h: 34, weight: 3, availableFrom: 250, sink: 5,
+             trim: { sx: 21, sy: 92, sw: 470, sh: 208 },
+             hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 } },
+      stump: { h: 46, weight: 2.4, availableFrom: 900, sink: 5,
+               trim: { sx: 56, sy: 60, sw: 400, sh: 240 },
+               hitbox: { left: 0.12, right: 0.12, top: 0.12, bottom: 0.02 } },
+      boulder: { h: 40, weight: 2.5, availableFrom: 400, sink: 5,
+                 trim: { sx: 61, sy: 70, sw: 389, sh: 230 },
+                 hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 } },
+      // A heron: longer-winged than the owl, and it flies a touch higher.
+      flyer: { w: 64, h: 50, altMin: 112, altMax: 150,
+               trim: { sx: 116, sy: 80, sw: 280, sh: 220 },
+               hitTrim: { sx: 127, sy: 70, sw: 258, sh: 230 },
+               fallTrim: { sx: 143, sy: 129, sw: 225, sh: 171 } },
+    },
+    cast: { hedgehog: "frog", rock: "turtle", sentry: "snake", rabbit: "gator",
+            log: "mangrove log", stump: "roots", boulder: "river rock",
+            chaser: "hunting dog", flyer: "heron", collectible: "acorn" },
     dog: { availableFrom: 400, gapScale: 1.0 },
-    cast: { chaser: "hunting dog", collectible: "acorn" },
     // Low and lilting, in E minor pentatonic: slower water than mountain air.
     music: {
       root: 64, // E4
@@ -566,9 +663,7 @@ const LEVELS = [
   { theme: "field", goal: 3000 },
   { theme: "woodland", goal: 3000 },
   { theme: "mountain", goal: 3000 },
-  // Level 4 joins once its artwork is in. The crossing mechanics work now
-  // and can be tried with ?test=1, but it is the field with holes in it.
-  // { theme: "river", goal: 3000 },
+  { theme: "swamp", goal: 3000 },
 ];
 let levelIndex = 0;
 let THEME = THEMES[LEVELS[levelIndex].theme];
@@ -1264,7 +1359,8 @@ function bindTheme() {
     type.hide = paths.slice(0, poses.length).map((src, i) => {
       const key = `react_${role}_${i}`;
       IMAGE_SOURCES[key] = src;
-      return { key, trim: poses[i].trim, wScale: poses[i].wScale || 1 };
+      return { key, trim: poses[i].trim, wScale: poses[i].wScale || 1,
+               sit: !!poses[i].sit };
     });
   }
   /* A pouncing animal is tallest in mid-leap, and that is the height the
@@ -1278,7 +1374,9 @@ function bindTheme() {
     const floor = type.floor || (type.trim.sy + type.trim.sh);
     type.rearHeight = Math.max(
       type.h,
-      ...type.hide.map((p) => (floor - p.trim.sy) * px)
+      // A pose that sits on the ground is only as tall as it is drawn;
+      // one drawn airborne reaches from the floor to the top of its frame.
+      ...type.hide.map((p) => (p.sit ? p.trim.sh : floor - p.trim.sy) * px)
     );
   }
   DOG.frames = THEME.chaser;
@@ -2113,7 +2211,10 @@ class Obstacle {
       w: frame.sw * px,
       h: frame.sh * px,
       x: this.anchorX + dx * px,
-      lift: (floor - (frame.sy + frame.sh)) * px, // 0 when its feet are down
+      // 0 when its feet are down. `sit` forces that for a frame drawn off
+      // the baseline that is meant to be standing - the swamp gator's
+      // landing pose is drawn at the same height as its lunge.
+      lift: frame.sit ? 0 : (floor - (frame.sy + frame.sh)) * px,
     };
   }
 
@@ -2166,7 +2267,9 @@ class Obstacle {
 
     this.hideLevel = idx + 1;
     this.hideImage = idx >= 0 ? images[poses[idx].key] : null;
-    const frame = idx >= 0 ? poses[idx].trim : t.trim;
+    const frame = idx >= 0
+      ? Object.assign({}, poses[idx].trim, { sit: poses[idx].sit })
+      : t.trim;
     const g = this.poseGeometry(frame);
     this.w = g.w;
     this.h = g.h;
