@@ -3361,6 +3361,48 @@ class SpawnDirector {
  * bases below it, so the ground strip's grass (drawn later) overlaps and
  * plants them instead of letting them float.
  */
+/* Where each decor sprite's artwork ENDS, as a fraction of its canvas.
+ *
+ * Trees and bushes are drawn whole, with no trim, so anything with
+ * transparent space below the trunk was being hung from the bottom of its
+ * CANVAS rather than stood on its base - daylight under the tree, and the
+ * background band showing through beneath it. Worst on the swamp, whose
+ * trees have 29-41px of nothing below them.
+ *
+ * Keyed by path rather than by theme, because themes borrow one another's
+ * bushes: the swamp draws the field's, and it needs the field's number.
+ * Anything not listed reaches its own bottom edge and needs no help.
+ */
+const DECOR_BASE = {
+  "field/scenery/tree_01.png": 0.955,
+  "field/scenery/tree_02.png": 0.984,
+  "field/scenery/tree_03.png": 0.990,
+  "field/scenery/bush_strip.png": 0.911,
+  "field/scenery/bush_01.png": 0.874,
+  "field/scenery/bush_02.png": 0.921,
+  "field/scenery/bush_03.png": 0.959,
+  "woodland/scenery/tree_oak.png": 0.992,
+  "woodland/scenery/tree_birch.png": 0.992,
+  "woodland/scenery/tree_pine.png": 0.992,
+  "mountain/scenery/bush_strip.png": 0.922,
+  "swamp/scenery/trees/tree_01.png": 0.943,
+  "swamp/scenery/trees/tree_02.png": 0.920,
+  "swamp/scenery/trees/tree_03.png": 0.939,
+};
+
+// Cached on the image the first time it is asked for: this runs per decor
+// item per frame, and the lookup is a walk over every key.
+function decorBase(img) {
+  if (!img) return 1;
+  if (img.__decorBase === undefined) {
+    img.__decorBase = 1;
+    for (const key in DECOR_BASE) {
+      if (img.src.endsWith(key)) { img.__decorBase = DECOR_BASE[key]; break; }
+    }
+  }
+  return img.__decorBase;
+}
+
 const DECOR_STRIPS = [
   {
     // All three tree variants, merged into the treeline band behind them.
@@ -4163,10 +4205,15 @@ class Game {
       for (const item of strip.items) {
         const img = this.images[item.img];
         const w = item.h * (img.width / img.height);
+        /* Stood on its base rather than hung from the bottom of its
+         * canvas. Its drawn SIZE is unchanged - this only moves it down
+         * onto the ground.
+         */
+        const y = this.groundY + strip.yOffset - item.h * decorBase(img);
         for (const rep of [-1, 0, 1]) {
           const x = item.x - off + rep * strip.length;
           if (x + w < -20 || x > GAME_W + 20) continue;
-          this.ctx.drawImage(img, x, this.groundY + strip.yOffset - item.h, w, item.h);
+          this.ctx.drawImage(img, x, y, w, item.h);
         }
       }
     }

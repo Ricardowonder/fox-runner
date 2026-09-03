@@ -111,6 +111,23 @@ if fox_block:
             problems.append(f"  fox/{key}: {fname}\n"
                             f"      game.js  sx {want[0]}, sy {want[1]}, sw {want[2]}, sh {want[3]}\n"
                             f"      artwork  sx {got[0]}, sy {got[1]}, sw {got[2]}, sh {got[3]}")
+# --- decor baselines: where each tree/bush sprite's artwork ends -------
+m = re.search(r"const DECOR_BASE = \{(.*?)\n\};", src, re.S)
+if m:
+    for rel, want in re.findall(r'"([^"]+)":\s*([\d.]+)', m.group(1)):
+        f = ROOT / "assets" / "themes" / rel
+        if not f.exists():
+            problems.append(f"  decor: {rel} is listed but not on disk")
+            continue
+        checked += 1
+        im = Image.open(f).convert("RGBA")
+        b = im.getbbox()
+        got = round(b[3] / im.size[1], 3)
+        if abs(got - float(want)) > 0.008:
+            problems.append(f"  decor/{rel}\n"
+                            f"      game.js  base {want}\n"
+                            f"      artwork  base {got}")
+
 print(f"checked {checked} baked trims against the artwork")
 if waiting:
     print(f"\n{len(waiting)} not drawn yet - their trims are placeholders, and this\n"
