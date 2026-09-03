@@ -708,7 +708,12 @@ const FOX_TRIMS = {
   foxThrow1: { sx: 28, sy: 34, sw: 440, sh: 255, hScale: 1.0 },
   foxThrow2: { sx: 22, sy: 11, sw: 477, sh: 330, hScale: 1.26 },
   foxThrow3: { sx: 8, sy: 3, sw: 492, sh: 338, hScale: 1.29 },
-  foxThrow4: { sx: 16, sy: 3, sw: 482, sh: 327, hScale: 1.06 },
+  /* 1.30 rather than the 1.06 it had: the fox is drawn noticeably smaller
+   * on this canvas than on the release frame before it, so at a matched
+   * crop scale he shrank to 67% of his running size just as the throw
+   * finished. This lands him back at 100%, ready to run on.
+   */
+  foxThrow4: { sx: 16, sy: 3, sw: 482, sh: 327, hScale: 1.30 },
   foxAir: { sx: 18, sy: 62, sw: 475, sh: 208, hScale: 0.86 },
   foxFall: { sx: 38, sy: 20, sw: 435, sh: 265, hScale: 1.05 },
   // Throwing ahead: matched to the run scale (62/260), like the other throws.
