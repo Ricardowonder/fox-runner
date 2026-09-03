@@ -376,7 +376,7 @@ const THEMES = {
         poses: [
           { trim: { sx: 125, sy: 113, sw: 261, sh: 228 } }, // head up
           { trim: { sx: 119, sy: 41, sw: 274, sh: 300 } },  // reared
-          { trim: { sx: 98, sy: 139, sw: 272, sh: 181 } },  // crouched to spring
+          { trim: { sx: 106, sy: 94, sw: 300, sh: 247 } }, // launching forward
           { trim: { sx: 98, sy: 0, sw: 272, sh: 195 } },    // leaping, airborne
           { trim: { sx: 103, sy: 175, sw: 306, sh: 166 } }, // landed
         ],
