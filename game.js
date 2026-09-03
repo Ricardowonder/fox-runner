@@ -91,7 +91,13 @@ function makeTheme(dir, label, opts) {
   const qList = (sub, role, defs) => {
     const named = files[sub] && files[sub][role];
     return defs.map((def, i) => {
-      if (borrowed(sub) || !named || !named[i]) return p(sub, def);
+      if (borrowed(sub, role)) return `${fb}/${sub}/${def}`;
+      if (!named) return p(sub, def, role);
+      // An explicit null means "this one comes from the fallback theme":
+      // the mountain has its own bush strip but not the three single
+      // bushes, and asking for those would be three 404s a level.
+      if (named[i] === null && fb) return `${fb}/${sub}/${def}`;
+      if (!named[i]) return p(sub, def, role);
       const own = `assets/themes/${dir}/${sub}/${named[i]}`;
       return fb ? [own, `${fb}/${sub}/${def}`] : own;
     });
@@ -110,6 +116,7 @@ function makeTheme(dir, label, opts) {
       log: q("obstacles", "log", "log.png"),
       stump: q("obstacles", "stump", "stump.png"),
       boulder: q("obstacles", "boulder", "rock.png"),
+      sentry: q("obstacles", "sentry", "rock.png"),
     },
     // Any role may have any number of reaction poses - the ferret needs
     // two to cower, the badger four to stand all the way up.
@@ -118,7 +125,11 @@ function makeTheme(dir, label, opts) {
     reactions: opts.reactions
       ? Object.fromEntries(Object.entries(opts.reactions).map(
           ([role, names]) => [role,
-            names.map((n) => `assets/themes/${dir}/reactions/${n}`)]))
+            // A name with a "/" is a path inside this theme's folder, so a
+            // pose can be the role's own base sprite without shipping it
+            // twice; a bare name is a file in reactions/.
+            names.map((n) => `assets/themes/${dir}/${
+              n.includes("/") ? n : "reactions/" + n}`)]))
       : {
           hedgehog: qList("reactions", "hedgehog", ["hedgehog_1.png", "hedgehog_2.png"]),
           rabbit: qList("reactions", "rabbit", ["rabbit_1.png", "rabbit_2.png"]),
@@ -137,15 +148,19 @@ function makeTheme(dir, label, opts) {
     scenery: {
       sky: q("scenery", "sky", "sky.png"),
       hillsFar: p("scenery", "hills_far.png"),
-      clouds: `assets/themes/${dir}/scenery/clouds.png`, // optional; absent is fine
+      // Optional extra parallax bands; a theme that has no such file
+      // simply never names it in `bands`, so it is never requested.
+      clouds: `assets/themes/${dir}/scenery/clouds.png`,
+      treesMid: `assets/themes/${dir}/scenery/trees_mid.png`,
       trees: qList("scenery", "trees", seq(3, (i) => `tree_${pad2(i + 1)}.png`)),
-      bushes: ["bush_strip.png", "bush_01.png", "bush_02.png", "bush_03.png"]
-        .map((f) => p("scenery", f, "bushes")),
+      bushes: qList("scenery", "bushes",
+        ["bush_strip.png", "bush_01.png", "bush_02.png", "bush_03.png"]),
     },
-    ground: { grass: p("ground", "grass.png"), dirt: p("ground", "dirt.png") },
+    ground: { grass: q("ground", "grass", "grass.png"),
+              dirt: q("ground", "dirt", "dirt.png") },
     pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
     // The burrow the fox dives into to finish a level.
-    foxhole: p("scenery", "fox_hole.png"),
+    foxhole: p("scenery", "fox_hole.png", "foxhole"),
     // Backdrop for the success page. Deliberately the artwork WITHOUT
     // baked-in wording, so the title and the run's tally can be drawn
     // live over it and read correctly for whichever level just ended.
@@ -154,6 +169,12 @@ function makeTheme(dir, label, opts) {
     // OBSTACLE_TYPES / BIRD. Only geometry belongs here - never spacing or
     // speed, so the difficulty tuning stays identical across levels.
     sprites: opts.sprites || {},
+    /* Optional crops of this theme's ground artwork. The field's surface is
+     * two tiles (a grass strip over a band of soil); the mountain's is one
+     * ledge tile carrying its own grass lip above the stone, so it needs its
+     * own bands. A theme that says nothing uses the shared GROUND crops.
+     */
+    groundCrops: opts.groundCrops,
   };
 }
 
@@ -195,8 +216,8 @@ const THEMES = {
   woodland: makeTheme("woodland", "Woodland", {
     fallback: "field",
     // Has its own cast, scenery and trees; borrows the rest for now.
-    inherits: ["ground", "chaser", "collectible", "pages", "bushes",
-               "obstacles.boulder"],
+    inherits: ["ground", "chaser", "collectible", "pages", "scenery.bushes",
+               "obstacles.boulder", "obstacles.sentry"],
     // Dogs from the first stage here, and closer together: by level two
     // the player knows what a dog is and how to deal with one.
     dog: { availableFrom: 300, gapScale: 0.9 },
@@ -283,23 +304,41 @@ const THEMES = {
       flyer: { w: 63, h: 42, trim: { sx: 31, sy: 15, sw: 450, sh: 300 } },
     },
   }),
-  /* Level 3, still being drawn. The path stays flat - a real gradient
-   * would run the fox off the top of the screen within seconds - so the
-   * climb is told by the scenery instead: the peaks sink toward the
-   * horizon and the cloud band, overhead at the start, ends up below the
-   * path by the summit. Everything not yet drawn borrows the woodland.
+  /* Level 3. The path stays flat - a real gradient would run the fox off
+   * the top of the screen within seconds - so the climb is told by the
+   * scenery instead: the peaks sink toward the horizon and the cloud band,
+   * overhead at the start, ends up below the path by the summit. The
+   * surface is a stone ledge with a grass lip, one tile carrying both.
+   * The mountain has its own cast, sky and ground; the dog, the acorn, the
+   * bushes and the interstitial pages come from the field.
    */
   mountain: makeTheme("mountain", "Mountain", {
-    fallback: "woodland",
-    inherits: ["ground", "chaser", "collectible", "pages", "bushes",
-               "obstacles.boulder", "flyer"],
+    fallback: "field",
+    inherits: ["chaser", "collectible", "pages", "foxhole"],
     files: {
-      obstacles: { hedgehog: "skunk.png", rabbit: "bear.png" },
+      obstacles: { hedgehog: "skunk.png", rabbit: "bear.png", rock: "marmot.png",
+                   log: "log_pine.png", stump: "spire.png", sentry: "ram.png",
+                   boulder: "boulder.png" },
+      flyer: { fly: seq(6, (i) => `eagle_fly_${pad2(i + 1)}.png`) },
+      ground: { grass: "ledge.png", dirt: "ledge.png" },
+      scenery: {
+        // The mountain keeps its own bush strip - grey stones among the
+        // leaves - but has no single bushes, so those come from the field.
+        bushes: ["bush_strip.png", null, null, null],
+        trees: ["trees/tree_01.png", "trees/tree_02.png", "trees/tree_03.png"],
+      },
     },
     reactions: {
       hedgehog: ["skunk_1.png", "skunk_2.png", "skunk_3.png",
                  "skunk_4.png", "skunk_5.png"],
       rabbit: ["bear_1.png", "bear_2.png", "bear_3.png", "bear_4.png"],
+      rock: ["marmot_1.png", "marmot_2.png"],
+      /* ram_1 and ram_2 came back from the art pass sliced through - the
+       * body cut off at a straight vertical edge, with a piece of another
+       * frame stuck on the left - so the rise runs straight from the
+       * resting sprite to the two good upright poses.
+       */
+      sentry: ["obstacles/ram.png", "ram_3.png", "ram_4.png"],
     },
     sprites: {
       /* The bear sleeps across the path and wakes as the fox bears down:
@@ -325,6 +364,23 @@ const THEMES = {
           { trim: { sx: 117, sy: 3, sw: 278, sh: 334 } },
         ],
       },
+      /* The ram carries the rearing idea through the early game, where the
+       * bear is far too big to appear: it stands to 58px, comfortably
+       * under a tap's 108px apex, and arrives at 500 - the same point the
+       * woodland badger does. Between them the mountain has something
+       * standing up to the fox from the first stage to the last.
+       */
+      sentry: {
+        h: 34, rearHeight: 58, availableFrom: 500, sink: 5,
+        rearNotice: 400, weight: 2,
+        trim: { sx: 14, sy: 11, sw: 483, sh: 330 },
+        hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 14, sy: 11, sw: 483, sh: 330 } }, // on all fours
+          { trim: { sx: 198, sy: 11, sw: 181, sh: 330 } },
+          { trim: { sx: 149, sy: 11, sw: 213, sh: 330 } },
+        ],
+      },
       // The skunk raises its tail through five poses as the fox nears.
       hedgehog: {
         h: 32, weight: 1.7, sink: 6,
@@ -338,17 +394,68 @@ const THEMES = {
           { trim: { sx: 79, sy: 19, sw: 354, sh: 312 } },
         ],
       },
+      // The marmot takes the rock's slot and flattens itself as the fox
+      // leaps, the way the woodland otter does.
+      rock: {
+        h: 33, weight: 1.9, availableFrom: 250, animal: true, flip: true, sink: 6,
+        trim: { sx: 6, sy: 76, sw: 500, sh: 265 },
+        hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 6, sy: 111, sw: 500, sh: 230 } },
+          { trim: { sx: 6, sy: 169, sw: 500, sh: 172 }, wScale: 0.98 },
+        ],
+      },
+      // A fallen pine, about the weight of the woodland's mossy log.
+      log: { h: 38, weight: 3, availableFrom: 250, sink: 6,
+             trim: { sx: 6, sy: 130, sw: 500, sh: 211 },
+             hitbox: { left: 0.08, right: 0.08, top: 0.15, bottom: 0.02 } },
+      // A rock spire in the hollow log's slot: the tallest static thing in
+      // the game, but narrow with it, so it is height rather than reach.
+      // The trim skips a fragment of the pine log sitting to its left in
+      // the source PNG; the spire proper starts at x189.
+      stump: { h: 56, weight: 2.4, availableFrom: 900, sink: 6,
+               trim: { sx: 189, sy: 12, sw: 249, sh: 326 },
+               hitbox: { left: 0.14, right: 0.14, top: 0.10, bottom: 0.02 } },
+      // The mountain's own scree pile, in the mid-level rotation.
+      // Likewise trimmed clear of a sliver of the next frame at its right.
+      boulder: { h: 40, weight: 2.5, availableFrom: 400, sink: 6,
+                 trim: { sx: 7, sy: 84, sw: 449, sh: 255 },
+                 hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 } },
+      /* The eagle is a far bigger bird than the owl, and a taller one, so
+       * it flies higher to keep the promise the bluebird made in level 1:
+       * a fox on the ground can never be hit by anything in the air.
+       */
+      flyer: { w: 62, h: 62, altMin: 96,
+               trim: { sx: 102, sy: 11, sw: 329, sh: 330 } },
     },
-    cast: { hedgehog: "skunk", rabbit: "bear", rock: "boulder",
-            log: "fallen pine", stump: "rock spire",
-            chaser: "hunting dog", flyer: "eagle", collectible: "acorn" },
+    /* One tile, cropped twice: the grass lip and blades on top, then the
+     * stone cross-section below it. srcY values are fixed pixel bands
+     * measured from ledge.png (2048x768) - grass blades from y163, solid
+     * grass to y262, stone from there down to the soft edge at y700.
+     */
+    groundCrops: {
+      grass: { srcY0: 163, srcY1: 300, drawH: 34, surfaceFrac: 0.30 },
+      dirt: { srcY0: 290, srcY1: 700, drawH: 44, overlap: 12 },
+      underfill: "#161f21", // dark stone behind/below everything
+    },
+    cast: { hedgehog: "skunk", rabbit: "bear", rock: "marmot",
+            log: "fallen pine", stump: "rock spire", sentry: "ram",
+            boulder: "scree", chaser: "hunting dog", flyer: "eagle",
+            collectible: "acorn" },
     dog: { availableFrom: 300, gapScale: 0.85 },
     /* Peaks drop 70px and the clouds a full 210px across the level, so
-     * by the summit the fox is running above the weather.
+     * by the summit the fox is running above the weather. The mid
+     * treeline stays put: something has to hold still for the rest of it
+     * to read as movement.
      */
     bands: [
-      { img: "hillsFar", h: 150, parallax: 0.08, climb: 70 },
-      { img: "clouds", h: 90, parallax: 0.16, climb: 210 },
+      // Only 40: sunk any further the peaks disappear behind the treeline
+      // and the last third of the climb is an empty sky.
+      { img: "hillsFar", h: 150, parallax: 0.08, climb: 40 },
+      // Starts 80px above the horizon and descends 210px, so it is
+      // overhead for the first stage and gone below the path by the last.
+      { img: "clouds", h: 90, parallax: 0.16, offset: -80, climb: 210 },
+      { img: "treesMid", h: 78, parallax: 0.22 },
     ],
     // Thinner and higher than the woodland: D major pentatonic.
     music: {
@@ -366,9 +473,7 @@ const THEMES = {
 const LEVELS = [
   { theme: "field", goal: 3000 },
   { theme: "woodland", goal: 3000 },
-  // Level 3 joins the list once its artwork is in; until then it would
-  // just be the woodland with a different sky.
-  // { theme: "mountain", goal: 3000 },
+  { theme: "mountain", goal: 3000 },
 ];
 let levelIndex = 0;
 let THEME = THEMES[LEVELS[levelIndex].theme];
@@ -593,6 +698,19 @@ const OBSTACLE_TYPES = {
     weight: 2.5, availableFrom: 999999, sink: 4,
     trim: { sx: 14, sy: 14, sw: 484, sh: 304 },
     hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
+  },
+  /* A seventh slot for a second REARING animal, so a level can have one
+   * that stands up early and modestly as well as a late, big one. Like
+   * the boulder it defaults to rock.png and to never appearing, so the
+   * levels that do not want it are untouched.
+   */
+  sentry: {
+    src: THEME.obstacles.sentry,
+    h: 34, sizeClass: "medium", animal: true, pairable: false,
+    weight: 2, availableFrom: 999999, sink: 4,
+    flip: true, // whoever plays this role faces the approaching fox
+    trim: { sx: 14, sy: 14, sw: 484, sh: 304 },
+    hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
   },
   stump: {
     src: THEME.obstacles.stump,
@@ -951,7 +1069,9 @@ function loadImage(src, opts) {
 // override geometry, and switching level must not leak one theme's
 // proportions into the next, so every bind starts from these.
 const BASE_OBSTACLES = JSON.parse(JSON.stringify(OBSTACLE_TYPES));
-const BASE_BIRD = { w: BIRD.w, h: BIRD.h, trim: BIRD.trim };
+// Deep-cloned whole, not just w/h/trim: a theme that changes any other
+// number (the eagle's flight altitude) must not leak it into the next level.
+const BASE_BIRD = JSON.parse(JSON.stringify(BIRD));
 
 function applyThemeSprites() {
   for (const [name, base] of Object.entries(BASE_OBSTACLES)) {
@@ -996,6 +1116,9 @@ function themeImageEntries(theme) {
   push(theme.collectible.icon);
   push(theme.scenery.sky);
   push(theme.scenery.hillsFar);
+  for (const band of theme.bands || []) {
+    if (OPTIONAL_BAND_IMAGES.includes(band.img)) push(theme.scenery[band.img]);
+  }
   theme.scenery.trees.forEach(push);
   theme.scenery.bushes.forEach(push);
   push(theme.ground.grass);
@@ -1065,7 +1188,11 @@ function loadAssets() {
   }
   // Optional art: absent files simply leave the key undefined.
   jobs.push(loadImage(THEME.foxhole).then((img) => { images.foxhole = img; }, () => {}));
-  jobs.push(loadImage(THEME.scenery.clouds).then((img) => { images.clouds = img; }, () => {}));
+  for (const band of THEME.bands || []) {
+    if (!OPTIONAL_BAND_IMAGES.includes(band.img)) continue;
+    const src = THEME.scenery[band.img];
+    jobs.push(loadImage(src).then((img) => { images[band.img] = img; }, () => {}));
+  }
   jobs.push(loadImage(THEME.levelCompleteBg).then((img) => { images.levelCompleteBg = img; }, () => {}));
   return Promise.all(jobs).then(() => images);
 }
@@ -2346,6 +2473,10 @@ const DECOR_STRIPS = [
  * toward the horizon and the cloud band, which starts overhead, ends up
  * below the path. Themes override this list.
  */
+// Parallax art that only some settings have. Requested for a theme only
+// when its own `bands` name it: the field has no clouds and no treeline.
+const OPTIONAL_BAND_IMAGES = ["clouds", "treesMid"];
+
 const BG_BANDS = [
   { img: "hillsFar", h: 115, parallax: 0.1 },
 ];
@@ -3053,8 +3184,11 @@ class Game {
     const bandBottom = this.groundY + 4;
     const climbed = Math.min(1, this.score / levelGoal()); // how far up we are
     for (const band of (THEME.bands || BG_BANDS)) {
-      if (band.img === "clouds" && !images.clouds) continue; // theme has none
-      const drop = (band.climb || 0) * climbed;
+      if (!images[band.img]) continue; // optional band, art not in this theme
+      // `offset` lifts a band off the horizon at the start; `climb` slides
+      // it down over the level. Together they let the cloud band begin
+      // overhead and end up below the path.
+      const drop = (band.offset || 0) + (band.climb || 0) * climbed;
       this.drawTiledLayer(images[band.img], band.h, bandBottom + drop,
         this.scroll * band.parallax, true);
     }
@@ -3065,15 +3199,16 @@ class Game {
     // cross-section from ground_tile, then ground_tile_2's grass strip whose
     // drippy underside hangs over the dirt. All scroll at full game speed
     // with mirrored tiling (neither tile is seamless).
-    const grassTop = this.groundY - GROUND.grass.drawH * GROUND.grass.surfaceFrac;
-    const grassBottom = grassTop + GROUND.grass.drawH;
-    const dirtTop = grassBottom - GROUND.dirt.overlap;
-    ctx.fillStyle = GROUND.underfill;
+    const gc = THEME.groundCrops || GROUND;
+    const grassTop = this.groundY - gc.grass.drawH * gc.grass.surfaceFrac;
+    const grassBottom = grassTop + gc.grass.drawH;
+    const dirtTop = grassBottom - gc.dirt.overlap;
+    ctx.fillStyle = gc.underfill || GROUND.underfill;
     ctx.fillRect(0, dirtTop + 6, GAME_W, GAME_H - dirtTop - 6);
-    this.drawTiledLayer(images.groundDirt, GROUND.dirt.drawH, dirtTop + GROUND.dirt.drawH,
-      this.scroll, true, GROUND.dirt);
-    this.drawTiledLayer(images.groundGrass, GROUND.grass.drawH, grassBottom,
-      this.scroll, true, GROUND.grass);
+    this.drawTiledLayer(images.groundDirt, gc.dirt.drawH, dirtTop + gc.dirt.drawH,
+      this.scroll, true, gc.dirt);
+    this.drawTiledLayer(images.groundGrass, gc.grass.drawH, grassBottom,
+      this.scroll, true, gc.grass);
   }
 
   /* The fox's burrow. Uses the theme's art when it exists; otherwise it is
