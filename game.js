@@ -693,7 +693,14 @@ const FOX_SHIFT_BACK = 70;         // px/s ease home after the chase
  */
 const FOX_TRIMS = {
   run: { sx: 26, sy: 43, sw: 460, sh: 260 }, // union of fox_run_01..08
-  foxJump: { sx: 22, sy: 8, sw: 477, sh: 325 },
+  /* The three airborne poses are sized so the FOX is the same size in all
+   * of them, and the same size he is running. hScale on its own does not
+   * do that: it scales the crop, and each pose fills its canvas
+   * differently, so matching crop scale left him shrinking as he took off.
+   * These numbers come from the drawn area of the fox in each frame -
+   * he measured 72%, 56% and 61% of his running size before.
+   */
+  foxJump: { sx: 22, sy: 8, sw: 477, sh: 325, hScale: 1.18 },
   foxLand: { sx: 0, sy: 0, sw: 507, sh: 333 },
   foxHit: { sx: 0, sy: 1, sw: 512, sh: 340 },
   // Throw sequence. hScale draws the rearing poses taller than the run
@@ -702,12 +709,8 @@ const FOX_TRIMS = {
   foxThrow2: { sx: 22, sy: 11, sw: 477, sh: 330, hScale: 1.26 },
   foxThrow3: { sx: 8, sy: 3, sw: 492, sh: 338, hScale: 1.29 },
   foxThrow4: { sx: 16, sy: 3, sw: 482, sh: 327, hScale: 1.06 },
-  /* The airborne pair. hScale holds them to the same pixel scale as the
-   * rising jump pose (62/325), so the fox keeps one apparent size right
-   * through the arc instead of swelling as he flattens out.
-   */
-  foxAir: { sx: 18, sy: 62, sw: 475, sh: 208, hScale: 0.64 },
-  foxFall: { sx: 38, sy: 20, sw: 435, sh: 265, hScale: 0.82 },
+  foxAir: { sx: 18, sy: 62, sw: 475, sh: 208, hScale: 0.86 },
+  foxFall: { sx: 38, sy: 20, sw: 435, sh: 265, hScale: 1.05 },
   // Throwing ahead: matched to the run scale (62/260), like the other throws.
   foxThrowFwd1: { sx: 19, sy: 48, sw: 473, sh: 281, hScale: 1.08 },
   foxThrowFwd2: { sx: 18, sy: 60, sw: 475, sh: 269, hScale: 1.04 },
