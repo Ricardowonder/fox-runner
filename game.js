@@ -174,6 +174,12 @@ function makeTheme(dir, label, opts) {
     },
     ground: { grass: q("ground", "grass", "grass.png"),
               dirt: q("ground", "dirt", "dirt.png") },
+    // Water, bank ends and stepping stones, for a setting with a river.
+    riverArt: opts.riverArt ? Object.assign({}, opts.riverArt, {
+      waterSrc: p("ground", "water.png"),
+      platformSrc: p("ground", "platform.png"),
+      edgeSrc: p("ground", "bank_edge.png"),
+    }) : null,
     pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
     // The burrow the fox dives into to finish a level.
     foxhole: p("scenery", "fox_hole.png", "foxhole"),
@@ -547,16 +553,43 @@ const THEMES = {
    */
   swamp: makeTheme("swamp", "Swamp", {
     fallback: "field",
-    // No scenery of its own yet, so all of it comes from the field. That
-    // is why a swamp currently runs through a green meadow.
-    inherits: ["ground", "chaser", "collectible", "pages", "scenery", "foxhole"],
+    inherits: ["chaser", "collectible", "pages", "foxhole"],
     river: true,
+    /* One tile cropped twice, the way the mountain's ledge is: the grassy
+     * lip over the earth beneath it. The bank's walkable surface is source
+     * row 306 of 768, which is what surfaceFrac places on the ground line.
+     */
+    groundCrops: {
+      grass: { srcY0: 280, srcY1: 420, drawH: 40, surfaceFrac: 0.186 },
+      dirt: { srcY0: 400, srcY1: 700, drawH: 44, overlap: 10 },
+      underfill: "#3a2c18",
+    },
+    /* The river's own furniture. `top` on the platform is the source row
+     * of its flat mossy surface and `x0/x1` the span of it, so the stone
+     * can be placed by its LANDING edge rather than by its artwork - the
+     * roots below spread wider than the part he can stand on.
+     */
+    riverArt: {
+      water: { srcY0: 0, srcY1: 512 },
+      platform: { trim: { sx: 52, sy: 88, sw: 412, sh: 180 },
+                  top: 104, x0: 109, x1: 420 },
+      // Only the cut face and the roots below it; the rest of the sprite
+      // is bank, and at a gap the bank is already drawn.
+      edge: { trim: { sx: 286, sy: 250, sw: 226, sh: 430 }, surface: 323 },
+    },
     files: {
       obstacles: { hedgehog: "frog.png", rabbit: "gator.png", rock: "turtle.png",
                    sentry: "snake.png", log: "log_mangrove.png",
                    stump: "roots.png", boulder: "river_rock.png" },
       flyer: { fly: seq(6, (i) => `heron_fly_${pad2(i + 1)}.png`),
                hit: "heron_hit.png", fall: "heron_fall.png" },
+      // One tile serves as both bands; groundCrops takes two slices of it.
+      ground: { grass: "ground_bank.png", dirt: "ground_bank.png" },
+      scenery: {
+        trees: ["trees/tree_01.png", "trees/tree_02.png", "trees/tree_03.png"],
+        // Its own reed strip; the three single bushes come from the field.
+        bushes: ["bush_strip.png", null, null, null],
+      },
     },
     reactions: {
       hedgehog: ["frog_1.png", "frog_2.png"],
@@ -594,7 +627,7 @@ const THEMES = {
        * the baseline; the landing one is back down on it.
        */
       sentry: {
-        h: 32, availableFrom: 500, sink: 3, weight: 2,
+        h: 32, availableFrom: 500, sink: 6, weight: 2,
         sheet: { sx: 102, sw: 308 }, floor: 300,
         rearNotice: 430, riseTime: 0.38,
         lungeBy: 26, lungeAt: 165, lungeTime: 0.22,
@@ -612,7 +645,7 @@ const THEMES = {
        * the game, so it is held back to 1100 like the mountain's bear.
        */
       rabbit: {
-        h: 30, availableFrom: 1100, sink: 3, weight: 2.2,
+        h: 30, availableFrom: 1100, sink: 6, weight: 2.2,
         sheet: { sx: 41, sw: 430 }, floor: 300,
         rearNotice: 470, riseTime: 0.42,
         lungeBy: 28, lungeAt: 165, lungeTime: 0.24,
@@ -646,12 +679,20 @@ const THEMES = {
             log: "mangrove log", stump: "roots", boulder: "river rock",
             chaser: "hunting dog", flyer: "heron", collectible: "acorn" },
     dog: { availableFrom: 400, gapScale: 1.0 },
-    // Low and lilting, in E minor pentatonic: slower water than mountain air.
+    /* Banjos, arguing. Written in that idiom rather than lifted from the
+     * film - Dueling Banjos is Arthur Smith's and still in copyright - so
+     * this is the same trick played on our own notes: bar one is a call
+     * low down, bar two answers it an OCTAVE up, note for note, which is
+     * what makes two banjos sound like they are trading blows. G major
+     * pentatonic throughout, over a bluegrass alternating bass that walks
+     * G-A-B-D back to the top of the loop.
+     */
     music: {
-      root: 64, // E4
-      lead: [0, 3, 7, 3, 5, 3, 0, 3, 7, 10, 7, 5, 3, 5, 0, null],
-      bass: [-12, null, null, null, -5, null, null, null,
-             -12, null, null, null, -7, null, null, null],
+      root: 67, // G4
+      lead: [0, 4, 7, 9, 7, 4, 0, 4,        // the call
+             12, 16, 19, 16, 12, 9, 7, null], // and the answer, an octave up
+      bass: [-12, null, -5, null, -12, null, -5, null,
+             -12, null, -5, null, -12, -10, -8, -5],
     },
   }),
 };
@@ -807,7 +848,8 @@ const RIVER = {
   minLanding: 240,     // clear bank after it, to recover on
   gapMin: 1700,        // px of travel between crossings
   gapMax: 3200,
-  stonesFrom: 700,     // score at which the two-hop crossings start
+  stonesFrom: 350,     // score at which the two-hop crossings start
+  stoneChance: 0.6,    // ...and how often a crossing is one of them
   fallKills: 40,       // px below the bank before the run is over
   waterTop: 10,        // where the waterline sits below the bank surface
 };
@@ -1524,6 +1566,12 @@ function loadAssets() {
   THEME.flyer.fly.forEach((src, i) => {
     jobs.push(loadImage(src).then((img) => (images.birdFly[i] = img)));
   });
+  if (THEME.riverArt) {
+    const ra = THEME.riverArt;
+    jobs.push(loadImage(ra.waterSrc).then((img) => (images.water = img)));
+    jobs.push(loadImage(ra.platformSrc).then((img) => (images.platform = img)));
+    jobs.push(loadImage(ra.edgeSrc).then((img) => (images.bankEdge = img)));
+  }
   jobs.push(loadImage(THEME.flyer.hit).then((img) => (images.birdHit = img)));
   jobs.push(loadImage(THEME.flyer.fall).then((img) => (images.birdFall = img)));
   images.dogRun = [];
@@ -2588,7 +2636,7 @@ class DogDirector {
     return max;
   }
 
-  update(dt, speed, score, fox, obstacles, spawner, images) {
+  update(dt, speed, score, fox, obstacles, spawner, images, river) {
     for (const d of this.dogs) d.update(dt, speed, fox, score);
     this.dogs = this.dogs.filter((d) => !d.done);
 
@@ -2619,6 +2667,14 @@ class DogDirector {
     if (obstacles.some((o) => o.x + o.w > GAME_W - 260) || spawner.distanceUntilNext < 220) {
       spawner.distanceUntilNext = Math.max(spawner.distanceUntilNext, 300);
       this.distanceUntilNext = 40; // check again as soon as the ground clears
+      return;
+    }
+    /* And it needs BANK to lie on. A dog is laid down asleep and only
+     * wakes as the fox reaches it, so without this one gets left asleep
+     * on the water as the crossing it spawned over scrolls past him.
+     */
+    if (river && !river.spanIsSolid(GAME_W + 10, GAME_W + 200)) {
+      this.distanceUntilNext = 40;
       return;
     }
     // Breathing room for the encounter opening — full grace for a fresh
@@ -2746,6 +2802,17 @@ class River {
     return this.groundY;
   }
 
+  /* Is everything between x0 and x1 standing on bank? Asked before a
+   * sleeping dog is laid down, and by anything else that has to rest on
+   * solid ground rather than hang over open water.
+   */
+  spanIsSolid(x0, x1) {
+    for (const c of this.crossings) {
+      if (c.x < x1 && c.x + c.w > x0) return false;
+    }
+    return true;
+  }
+
   // Screen spans where there IS bank, so the ground can be drawn around
   // the holes rather than straight through them.
   bankSpans() {
@@ -2784,7 +2851,7 @@ class River {
      */
     if (obstacles && obstacles.some((o) => o.x + o.w > spawnX - RIVER.minRunUp)) return;
     let crossing;
-    if (score >= RIVER.stonesFrom && Math.random() < 0.45) {
+    if (score >= RIVER.stonesFrom && Math.random() < RIVER.stoneChance) {
       /* Two hops with a stone in the middle. Each half is half the jump he
        * has, so neither is near the limit - but together with the stone
        * they are far beyond one jump, which is the whole point of it.
@@ -3854,7 +3921,8 @@ class Game {
         this.obstacles[this.obstacles.length - 1], this.acorns, this.images.acorn
       );
     }
-    this.dogDirector.update(dt, this.speed, this.score, this.fox, this.obstacles, this.spawner, this.images);
+    this.dogDirector.update(dt, this.speed, this.score, this.fox, this.obstacles,
+      this.spawner, this.images, THEME.river ? this.river : null);
     // A woken dog pushes the fox toward mid-screen: the chase fits on
     // screen behind him and obstacles arrive with less warning.
     const dogPressure = this.dogDirector.dogs.some(
@@ -4071,45 +4139,82 @@ class Game {
     this.drawCrossings(dirtTop);
   }
 
-  /* River water, filling the holes in the bank. Stand-in art for now: the
-   * real thing is a tiling water surface, and this is here so the level
-   * can be built and played before it arrives.
+  /* River water, filling the holes in the bank. The tile's waterline is
+   * its top row, so it is laid from just under the bank surface down.
    */
   drawWater(dirtTop) {
-    const { ctx } = this;
+    const { ctx, images } = this;
+    const art = THEME.riverArt;
     const top = this.groundY + RIVER.waterTop;
     for (const c of this.river.crossings) {
-      const g = ctx.createLinearGradient(0, top, 0, GAME_H);
-      g.addColorStop(0, "#4a86a8");
-      g.addColorStop(1, "#1d3f57");
-      ctx.fillStyle = g;
-      ctx.fillRect(c.x, top, c.w, GAME_H - top);
-      // A waterline, so the surface reads as water rather than a hole.
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.fillRect(c.x, top, c.w, 3);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
-      ctx.fillRect(c.x, top + 11, c.w, 2);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(c.x, top, c.w, GAME_H - top + 4);
+      ctx.clip();
+      if (images.water && art) {
+        const src = art.water;
+        const sh = src.srcY1 - src.srcY0;
+        const drawH = GAME_H - top + 10;
+        const scale = drawH / sh;
+        const drawW = images.water.width * scale;
+        // Drifts slower than the bank: moving water, not a moving picture.
+        let x = c.x - ((this.scroll * 0.35) % drawW);
+        for (; x < c.x + c.w; x += drawW) {
+          ctx.drawImage(images.water, 0, src.srcY0, images.water.width, sh,
+            x - 0.5, top, drawW + 1, drawH);
+        }
+      } else {
+        ctx.fillStyle = "#3f6b48";
+        ctx.fillRect(c.x, top, c.w, GAME_H - top);
+      }
+      ctx.restore();
     }
   }
 
-  /* The cut faces at each bank edge, and the stepping stones standing in
-   * the water. Stand-in shapes until the artwork lands.
+  /* The cut ends of the bank, and the stepping stones standing in the
+   * water. The stone is placed by the flat part of its top - the roots
+   * under it spread wider than the bit he can actually stand on.
    */
   drawCrossings(dirtTop) {
-    const { ctx } = this;
+    const { ctx, images } = this;
+    const art = THEME.riverArt;
     for (const c of this.river.crossings) {
-      // The bank does not just stop in mid-air: give each side a face.
-      ctx.fillStyle = "rgba(38, 26, 16, 0.85)";
-      ctx.fillRect(c.x - 7, dirtTop, 7, this.groundY + RIVER.waterTop - dirtTop + 6);
-      ctx.fillRect(c.x + c.w, dirtTop, 7, this.groundY + RIVER.waterTop - dirtTop + 6);
-      for (const s of c.stones) {
-        const h = this.groundY + 26 - s.top;
-        ctx.fillStyle = "#5b6b53";
-        roundRectPath(ctx, s.x, s.top, s.w, h, 9);
-        ctx.fill();
-        ctx.fillStyle = "#7d9070";           // a flat top to land on
-        roundRectPath(ctx, s.x, s.top, s.w, 11, 6);
-        ctx.fill();
+      if (images.bankEdge && art) {
+        const e = art.edge;
+        // Never wider than a third of the hole, or two ends meet in the
+        // middle of a narrow one and there is no water left to see.
+        const w = Math.min(58, c.w * 0.34);
+        const scale = w / e.trim.sw;
+        const above = (e.surface - e.trim.sy) * scale;
+        const h = e.trim.sh * scale;
+        const y = this.groundY - above;
+        // Right-hand lip: the sprite as drawn, its cut face to the left.
+        ctx.drawImage(images.bankEdge, e.trim.sx, e.trim.sy, e.trim.sw, e.trim.sh,
+          c.x + c.w, y, w, h);
+        // Left-hand lip: the same end mirrored.
+        ctx.save();
+        ctx.translate(c.x, y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(images.bankEdge, e.trim.sx, e.trim.sy, e.trim.sw, e.trim.sh,
+          0, 0, w, h);
+        ctx.restore();
+      }
+      for (const st of c.stones) {
+        if (images.platform && art) {
+          const p = art.platform;
+          // Scale so the FLAT TOP matches the stone he can land on.
+          const scale = st.w / (p.x1 - p.x0);
+          const dw = p.trim.sw * scale;
+          const dh = p.trim.sh * scale;
+          const dx = st.x - (p.x0 - p.trim.sx) * scale;
+          const dy = st.top - (p.top - p.trim.sy) * scale;
+          ctx.drawImage(images.platform, p.trim.sx, p.trim.sy, p.trim.sw, p.trim.sh,
+            dx, dy, dw, dh);
+        } else {
+          ctx.fillStyle = "#5b6b53";
+          roundRectPath(ctx, st.x, st.top, st.w, this.groundY + 26 - st.top, 9);
+          ctx.fill();
+        }
       }
     }
   }
