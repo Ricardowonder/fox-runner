@@ -12,7 +12,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fox Runner">
-  <link rel="stylesheet" href="style.css?v=71">
+  <link rel="stylesheet" href="style.css?v=72">
 </head>
 <body>
   <main class="game-wrap">
@@ -31,10 +31,28 @@
     </form>
   </main>
   <div class="rotate-hint">Rotate your phone to play</div>
-  <script src="game.js?v=71"></script>
+  <script src="game.js?v=72"></script>
   <script>
     // Offline support + installability (needs HTTPS or localhost).
     if ("serviceWorker" in navigator) {
+      /* A new worker takes over AFTER this page has already pulled its
+       * images from the old one's cache, so the first load following an
+       * art change still shows the old artwork - and no amount of hard
+       * refreshing helps, because the staleness is in the worker's cache
+       * rather than the browser's. Reload once when the new worker claims
+       * the page, so an update needs one reload rather than two.
+       *
+       * Only when there was already a controller: on a first-ever visit
+       * the claim is not an update, and reloading would be pointless.
+       */
+      if (navigator.serviceWorker.controller) {
+        let reloading = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (reloading) return; // controllerchange can fire more than once
+          reloading = true;
+          location.reload();
+        });
+      }
       navigator.serviceWorker.register("sw.js").catch(() => {});
     }
 
