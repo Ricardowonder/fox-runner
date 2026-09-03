@@ -371,8 +371,11 @@ const THEMES = {
        * standing up to the fox from the first stage to the last.
        */
       sentry: {
-        h: 34, rearHeight: 58, availableFrom: 500, sink: 5,
-        rearNotice: 400, weight: 2,
+        h: 40, rearHeight: 70, availableFrom: 500, sink: 5,
+        // Rises over half a second from 470px out. At the shared 0.28s it
+        // snapped upright between frames and was never really seen - and
+        // with two of its four rise frames unusable it needs the room.
+        rearNotice: 470, riseTime: 0.5, weight: 2,
         trim: { sx: 14, sy: 11, sw: 483, sh: 330 },
         hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
         poses: [
@@ -381,10 +384,21 @@ const THEMES = {
           { trim: { sx: 149, sy: 11, sw: 213, sh: 330 } },
         ],
       },
-      // The skunk raises its tail through five poses as the fox nears.
+      /* The skunk is the one animal in the game NOT flipped: it is drawn
+       * facing left already, and its whole defence is to turn its back and
+       * spray, so it has to end up with its tail toward the oncoming fox.
+       * Flipped, it faced away and fired its cloud off the wrong side.
+       *
+       * Five poses - alert, up on its legs, turning, back turned, and the
+       * cloud - so it needs more warning than the default 190px or the
+       * sequence is over before it reads.
+       */
       hedgehog: {
-        h: 32, weight: 1.7, sink: 6,
+        h: 32, weight: 1.7, sink: 6, flip: false,
+        poseFit: "scale", hideNotice: 340,
         trim: { sx: 81, sy: 100, sw: 350, sh: 231 },
+        // Unflipped the tail is still the trailing edge, so the generous
+        // inset stays on the right where it was.
         hitbox: { left: 0.10, right: 0.22, top: 0.14, bottom: 0.02 },
         poses: [
           { trim: { sx: 81, sy: 100, sw: 350, sh: 231 } },
@@ -394,15 +408,18 @@ const THEMES = {
           { trim: { sx: 79, sy: 19, sw: 354, sh: 312 } },
         ],
       },
-      // The marmot takes the rock's slot and flattens itself as the fox
-      // leaps, the way the woodland otter does.
+      /* The marmot takes the rock's slot and presses itself flat as the
+       * fox leaps. Its poses SPREAD as they drop - a flattening animal
+       * gets wider, and holding the resting width made it look like it
+       * was shrinking away into the ground instead.
+       */
       rock: {
-        h: 33, weight: 1.9, availableFrom: 250, animal: true, flip: true, sink: 6,
+        h: 38, weight: 1.9, availableFrom: 250, animal: true, flip: true, sink: 6,
         trim: { sx: 6, sy: 76, sw: 500, sh: 265 },
         hitbox: { left: 0.08, right: 0.24, top: 0.14, bottom: 0.02 },
         poses: [
-          { trim: { sx: 6, sy: 111, sw: 500, sh: 230 } },
-          { trim: { sx: 6, sy: 169, sw: 500, sh: 172 }, wScale: 0.98 },
+          { trim: { sx: 6, sy: 111, sw: 500, sh: 230 }, wScale: 1.07 },
+          { trim: { sx: 6, sy: 169, sw: 500, sh: 172 }, wScale: 1.16 },
         ],
       },
       // A fallen pine, about the weight of the woodland's mossy log.
@@ -448,14 +465,25 @@ const THEMES = {
      * treeline stays put: something has to hold still for the rest of it
      * to read as movement.
      */
+    /* Each band names the rows of its PNG that actually hold scenery, so
+     * `h` is the height of the peaks or the treeline rather than of the
+     * whole canvas - roughly half of each of these files is empty sky, and
+     * sizing that too was what left the mountains looking so small.
+     */
     bands: [
       // Only 40: sunk any further the peaks disappear behind the treeline
       // and the last third of the climb is an empty sky.
-      { img: "hillsFar", h: 150, parallax: 0.08, climb: 40 },
+      { img: "hillsFar", h: 118, parallax: 0.08, climb: 40,
+        src: { srcY0: 299, srcY1: 512 } },
       // Starts 80px above the horizon and descends 210px, so it is
       // overhead for the first stage and gone below the path by the last.
-      { img: "clouds", h: 90, parallax: 0.16, offset: -80, climb: 210 },
-      { img: "treesMid", h: 78, parallax: 0.22 },
+      { img: "clouds", h: 78, parallax: 0.16, offset: -80, climb: 210,
+        src: { srcY0: 109, srcY1: 341 } },
+      // Cropped to the treeline on all four sides: the bare margins left a
+      // gap of sky at every tile seam, and the bottom row is a ghost of
+      // half-transparent green.
+      { img: "treesMid", h: 52, parallax: 0.22,
+        src: { srcX0: 15, srcX1: 1181, srcY0: 300, srcY1: 597 } },
     ],
     // Thinner and higher than the woodland: D major pentatonic.
     music: {
@@ -477,6 +505,28 @@ const LEVELS = [
 ];
 let levelIndex = 0;
 let THEME = THEMES[LEVELS[levelIndex].theme];
+
+/* TESTING ONLY - remove before this goes to real players.
+ * Unlocks every level on the title and game-over screens so a level can be
+ * checked without playing up to it. Switch it on with ?test=1 (it sticks,
+ * so a tablet only needs the URL once) and off again with ?test=0.
+ * Letting a player pick their level would be cheating; this is scaffolding.
+ */
+const TEST_LEVELS = (() => {
+  const KEY = "foxRunnerTestLevels";
+  try {
+    const q = new URLSearchParams(location.search).get("test");
+    if (q === "1") localStorage.setItem(KEY, "1");
+    else if (q === "0") localStorage.removeItem(KEY);
+    return localStorage.getItem(KEY) === "1";
+  } catch (e) {
+    return false; // private browsing: just stay off
+  }
+})();
+// How many settings the picker may offer right now.
+function pickableLevels(furthest) {
+  return TEST_LEVELS ? LEVELS.length : furthest + 1;
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -1747,7 +1797,8 @@ class Obstacle {
     const fb = fox.getHitbox();
     const gap = this.x - (fb.x + fb.w);
     if (gap < (this.type.rearNotice || OBSTACLE_REAR.noticeDistance)) {
-      this.rear = Math.min(1, this.rear + dt / OBSTACLE_REAR.riseTime);
+      const rise = this.type.riseTime || OBSTACLE_REAR.riseTime;
+      this.rear = Math.min(1, this.rear + dt / rise);
     }
     const groundLine = this.y + this.h; // keep the feet planted
     const centre = this.x + this.w / 2;
@@ -1767,18 +1818,33 @@ class Obstacle {
     }
   }
 
-  // Animals cower as the fox bears down and tuck fully while he leaps
-  // over them. Cosmetic only: this.w/this.h and the hitbox never change.
+  /* Animals react as the fox bears down and hold their last pose while he
+   * leaps over them. Cosmetic only: this.w/this.h and the hitbox never
+   * change.
+   *
+   * The LAST pose is the one shown overhead - the hedgehog fully tucked,
+   * the skunk letting go of its cloud - and any poses before it are spread
+   * across the approach. With only two poses that is exactly the old
+   * behaviour (notice, then tuck); with five the animal has somewhere to
+   * go instead of sitting on pose two for the whole run-in.
+   */
   updateHide(dt, fox, images) {
+    const poses = this.type.hide;
+    if (!poses || !poses.length) return;
     const fb = fox.getHitbox();
     const foxFront = fb.x + fb.w;
     const myCenter = this.x + this.w / 2;
     const gap = this.x - foxFront;
+    const notice = this.type.hideNotice || OBSTACLE_HIDE.noticeDistance;
+    const approach = Math.max(1, poses.length - 1);
 
     let want = 0;
-    if (gap < OBSTACLE_HIDE.noticeDistance && myCenter > fb.x) want = 1;
+    if (gap < notice && myCenter > fb.x) {
+      const closed = Math.max(0, Math.min(1, 1 - gap / notice));
+      want = Math.min(approach, 1 + Math.floor(closed * approach));
+    }
     if (!fox.onGround && Math.abs(myCenter - (fb.x + fb.w / 2)) < OBSTACLE_HIDE.overhead) {
-      want = 2;
+      want = poses.length;
     }
     if (want > this.hideLevel) this.hideLevel = want;
     if (want > 0) {
@@ -1816,6 +1882,15 @@ class Obstacle {
         // Rearing types already grew this.h; draw the pose at full height.
         h = this.h;
         w = h * (t.sw / t.sh);
+      } else if (this.type.poseFit === "scale") {
+        /* One constant scale across every pose. An animal that stands up
+         * and turns - the skunk, before it sprays - is a NARROWER shape,
+         * so holding its width would balloon it at each step, the mirror
+         * of the bug that squashed the cowering ones.
+         */
+        const px = this.w / this.type.trim.sw;
+        w = t.sw * px * (pose.wScale || 1);
+        h = t.sh * px * (pose.wScale || 1);
       } else {
         /* Cowering keeps the animal's FOOTPRINT and drops its height. A
          * flattened pose is a much wider shape, so scaling it by height
@@ -2582,10 +2657,11 @@ class Game {
         e.preventDefault();
         if (this.state === "running") {
           if (e.code === "ArrowLeft" && !e.repeat) this.throwAcorn();
-        } else if (this.state === "ready" && this.furthest > 0) {
+        } else if (this.state === "ready" && pickableLevels(this.furthest) > 1) {
           // On the intro the arrows pick a setting instead.
           const step = e.code === "ArrowRight" ? 1 : -1;
-          this.levelChoice = Math.min(Math.max(this.levelChoice + step, 0), this.furthest);
+          const top = pickableLevels(this.furthest) - 1;
+          this.levelChoice = Math.min(Math.max(this.levelChoice + step, 0), top);
         }
       }
     });
@@ -2681,13 +2757,23 @@ class Game {
         return;
       }
       if (this.state === "paused") { this.resumeRun(); return; }
-      if (this.state === "ready" && this.levelChips.length) {
+      if (this.levelChips.length &&
+          (this.state === "ready" || (TEST_LEVELS && this.state === "gameover"))) {
         // Map the tap into canvas coordinates before hit-testing the chips.
-        const r = this.canvas.getBoundingClientRect();
-        const cx = (e.clientX - r.left) * (GAME_W / r.width);
-        const cy = (e.clientY - r.top) * (GAME_H / r.height);
+        const r2 = this.canvas.getBoundingClientRect();
+        const cx = (e.clientX - r2.left) * (GAME_W / r2.width);
+        const cy = (e.clientY - r2.top) * (GAME_H / r2.height);
         const hit = this.chipAt(cx, cy);
-        if (hit >= 0) this.levelChoice = hit;
+        if (hit >= 0) {
+          if (this.state === "ready") {
+            this.levelChoice = hit;
+          } else {
+            // TESTING ONLY: straight into the chosen setting.
+            if (performance.now() - this.gameOverAt < 600) return;
+            this.beginNewRun(hit);
+            return;
+          }
+        }
       }
       if (this.state !== "running") this.tryStartFromButton();
     });
@@ -3136,8 +3222,10 @@ class Game {
   drawTiledLayer(img, drawH, bottomY, offset, mirror, src) {
     const sy = src ? src.srcY0 : 0;
     const sh = src ? src.srcY1 - src.srcY0 : img.height;
+    const sx = (src && src.srcX0) || 0;
+    const sw = (src && src.srcX1 ? src.srcX1 : img.width) - sx;
     const scale = drawH / sh;
-    const drawW = img.width * scale;
+    const drawW = sw * scale;
     let x = -(offset % drawW);
     if (x > 0) x -= drawW;
     let index = Math.round((offset + x) / drawW); // stable tile index for mirroring
@@ -3148,10 +3236,10 @@ class Game {
         ctx.translate(x + drawW, bottomY - drawH);
         ctx.scale(-1, 1);
         // 1px overlap hides antialiasing seams between tiles.
-        ctx.drawImage(img, 0, sy, img.width, sh, -0.5, 0, drawW + 1, drawH);
+        ctx.drawImage(img, sx, sy, sw, sh, -0.5, 0, drawW + 1, drawH);
         ctx.restore();
       } else {
-        ctx.drawImage(img, 0, sy, img.width, sh, x - 0.5, bottomY - drawH, drawW + 1, drawH);
+        ctx.drawImage(img, sx, sy, sw, sh, x - 0.5, bottomY - drawH, drawW + 1, drawH);
       }
     }
   }
@@ -3190,7 +3278,7 @@ class Game {
       // overhead and end up below the path.
       const drop = (band.offset || 0) + (band.climb || 0) * climbed;
       this.drawTiledLayer(images[band.img], band.h, bandBottom + drop,
-        this.scroll * band.parallax, true);
+        this.scroll * band.parallax, true, band.src);
     }
 
     this.drawDecorStrips();
@@ -3484,14 +3572,12 @@ class Game {
   /* Settings unlocked so far, as tappable chips. Only appears once there
    * is a choice to make - a lone chip would just be furniture.
    */
-  drawLevelPicker(ctx) {
+  drawLevelPicker(ctx, y = 246) {
     this.levelChips = [];
-    if (this.furthest < 1) return;
-
-    const count = this.furthest + 1;
+    const count = pickableLevels(this.furthest);
+    if (count < 2) return;
     const chipH = 26;
     const gap = 10;
-    const y = 246;
     ctx.save();
     ctx.font = "bold 13px 'Courier New', Courier, monospace";
     const widths = [];
@@ -3785,7 +3871,7 @@ class Game {
     this.popups = [];
     this.dogDirector.reset();
     this.fox.reset();
-    this.levelChoice = Math.min(levelIndex, this.furthest);
+    this.levelChoice = Math.min(levelIndex, pickableLevels(this.furthest) - 1);
   }
 
   // Pause panel over the frozen scene.
@@ -3899,6 +3985,9 @@ class Game {
     ctx.restore();
 
     this.drawScoreTable(ctx, outlined);
+
+    // TESTING ONLY: jump to any setting without replaying the earlier ones.
+    if (TEST_LEVELS && !this.nameOpen) this.drawLevelPicker(ctx, 42);
 
     if (!this.nameOpen) {
       const buttons = [{ label: "CONTINUE", action: "continue", primary: true }];
