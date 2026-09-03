@@ -207,11 +207,11 @@ const THEMES = {
       bass: [-12, null, null, null, -5, null, null, null,
              -10, null, null, null, -5, null, null, null],
     },
-    cast: { hedgehog: "ferret", rabbit: "bear", rock: "otter",
+    cast: { hedgehog: "ferret", rabbit: "badger", rock: "otter",
             log: "mossy log", stump: "hollow log",
             chaser: "hunting dog", flyer: "owl", collectible: "acorn" },
     files: {
-      obstacles: { hedgehog: "ferret.png", rabbit: "bear.png", rock: "otter.png",
+      obstacles: { hedgehog: "ferret.png", rabbit: "badger.png", rock: "otter.png",
                    log: "log_mossy.png", stump: "log_hollow.png" },
       flyer: { fly: seq(6, (i) => `owl_fly_${pad2(i + 1)}.png`) },
       scenery: { sky: "woodland_background.png",
@@ -219,7 +219,7 @@ const THEMES = {
     },
     reactions: {
       hedgehog: ["ferret_1.png", "ferret_2.png"],
-      rabbit: ["bear_1.png", "bear_2.png", "bear_3.png", "bear_4.png"],
+      rabbit: ["badger_1.png", "badger_2.png", "badger_3.png", "badger_4.png"],
       rock: ["otter_1.png", "otter_2.png"],
     },
     sprites: {
@@ -237,29 +237,26 @@ const THEMES = {
       },
       /* The bear sleeps across the path and wakes as the fox bears down,
        * through four poses, rearing to swipe at him.
-       * It grows 36px to 66px - the tallest thing in either level, but
-       * still under the 105px jump apex, so a tap alone clears it.
+       * It grows 36px to 66px - comfortably under the 105px jump apex,
+       * so a tap alone clears it.
        */
       rabbit: {
-        /* Held back until 700: a reared bear is the toughest single jump
-         * in the game, and at the opening speed its timing window is
-         * 0.29s against 0.34-0.46s for everything else. Arriving a little
-         * later means it never shows up at the tightest moment.
-         */
-        h: 38, rearHeight: 70, availableFrom: 700, sink: 6,
+        // Held back from the opening: a reared badger is the toughest
+        // single obstacle in this level, so the ferret carries the early
+        // game the way the hedgehog does in the field.
+        h: 36, rearHeight: 66, availableFrom: 500, sink: 6,
         // Rears later than the default 520px, so it reads as reacting to
         // the fox rather than standing up long before he arrives. Still
         // clears the rise (0.28s) well before the latest viable jump.
         rearNotice: 400,
         weight: 2.2,
-        trim: { sx: 45, sy: 145, sw: 422, sh: 192 },
+        trim: { sx: 31, sy: 102, sw: 449, sh: 213 },
         hitbox: { left: 0.12, right: 0.20, top: 0.10, bottom: 0.02 },
-        // Dozing, sitting up, onto all fours, then rearing to swipe.
         poses: [
-          { trim: { sx: 45, sy: 145, sw: 422, sh: 192 } },
-          { trim: { sx: 65, sy: 76, sw: 382, sh: 261 } },
-          { trim: { sx: 59, sy: 3, sw: 393, sh: 334 } },
-          { trim: { sx: 117, sy: 3, sw: 278, sh: 334 } },
+          { trim: { sx: 31, sy: 102, sw: 449, sh: 213 } },
+          { trim: { sx: 115, sy: 15, sw: 281, sh: 300 } },
+          { trim: { sx: 156, sy: 15, sw: 199, sh: 300 } },
+          { trim: { sx: 137, sy: 15, sw: 237, sh: 300 } },
         ],
       },
       // The otter takes the rock's slot, and cowers like the ferret.
@@ -295,8 +292,54 @@ const THEMES = {
   mountain: makeTheme("mountain", "Mountain", {
     fallback: "woodland",
     inherits: ["ground", "chaser", "collectible", "pages", "bushes",
-               "obstacles.boulder", "flyer", "reactions"],
-    cast: { hedgehog: "marmot", rabbit: "ram", rock: "boulder",
+               "obstacles.boulder", "flyer"],
+    files: {
+      obstacles: { hedgehog: "skunk.png", rabbit: "bear.png" },
+    },
+    reactions: {
+      hedgehog: ["skunk_1.png", "skunk_2.png", "skunk_3.png",
+                 "skunk_4.png", "skunk_5.png"],
+      rabbit: ["bear_1.png", "bear_2.png", "bear_3.png", "bear_4.png"],
+    },
+    sprites: {
+      /* The bear sleeps across the path and wakes as the fox bears down:
+       * dozing, sitting up, onto all fours, then rearing to swipe. Bigger
+       * than the woodland badger it echoes - 42px growing to 74px, the
+       * tallest thing in the game.
+       *
+       * Held back to 1100 rather than the badger's 500. At 76px reared
+       * and appearing earlier its timing window measured 0.26s, tighter
+       * than the field opening that proved too hard for young players.
+       * At 74px arriving here it is 0.31s: harder than the badger's
+       * 0.338s, as a bear should be, without crossing that line.
+       */
+      rabbit: {
+        h: 42, rearHeight: 74, availableFrom: 1100, sink: 6,
+        rearNotice: 430, weight: 2.2,
+        trim: { sx: 45, sy: 145, sw: 422, sh: 192 },
+        hitbox: { left: 0.12, right: 0.22, top: 0.10, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 45, sy: 145, sw: 422, sh: 192 } },
+          { trim: { sx: 65, sy: 76, sw: 382, sh: 261 } },
+          { trim: { sx: 59, sy: 3, sw: 393, sh: 334 } },
+          { trim: { sx: 117, sy: 3, sw: 278, sh: 334 } },
+        ],
+      },
+      // The skunk raises its tail through five poses as the fox nears.
+      hedgehog: {
+        h: 32, weight: 1.7, sink: 6,
+        trim: { sx: 81, sy: 100, sw: 350, sh: 231 },
+        hitbox: { left: 0.10, right: 0.22, top: 0.14, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 81, sy: 100, sw: 350, sh: 231 } },
+          { trim: { sx: 59, sy: 45, sw: 394, sh: 286 } },
+          { trim: { sx: 105, sy: 16, sw: 301, sh: 315 } },
+          { trim: { sx: 148, sy: 16, sw: 215, sh: 315 } },
+          { trim: { sx: 79, sy: 19, sw: 354, sh: 312 } },
+        ],
+      },
+    },
+    cast: { hedgehog: "skunk", rabbit: "bear", rock: "boulder",
             log: "fallen pine", stump: "rock spire",
             chaser: "hunting dog", flyer: "eagle", collectible: "acorn" },
     dog: { availableFrom: 300, gapScale: 0.85 },
