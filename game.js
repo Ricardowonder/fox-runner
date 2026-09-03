@@ -153,6 +153,7 @@ function makeTheme(dir, label, opts) {
       crash: p("chaser", "crash.png"),
       bite: p("chaser", "bite.png"),
       run: seq(12, (i) => p("chaser", `run_${pad2(i + 1)}.png`)),
+      jump: seq(8, (i) => p("chaser", `jump_${pad2(i + 1)}.png`)),
     },
     flyer: {
       fly: qList("flyer", "fly", seq(6, (i) => `fly_${pad2(i + 1)}.png`)),
@@ -1162,6 +1163,42 @@ const DOG = {
     crash: { trim: { sx: 0, sy: 6, sw: 507, sh: 335 }, h: 54 },
     bite: { trim: { sx: 8, sy: 4, sw: 500, sh: 337 }, h: 58 },
   },
+  /* Eight frames of the dog clearing something. Chasing, it used to run
+   * straight through obstacles; now it jumps them.
+   *
+   * Purely how it looks: the hitbox stays on the ground throughout, so a
+   * jumping dog is exactly as dangerous as a running one and none of the
+   * chase tuning moves. It can afford to be cosmetic because obstacles
+   * reach the dog only AFTER passing the fox - the dog chases from behind
+   * him - so a jump and a bite never want the same moment.
+   *
+   * `h` is 50 rather than the run's 56 because these are tight crops and
+   * the run pose is the whole canvas: matched on the dog's drawn area, it
+   * is the same animal either way.
+   */
+  jump: {
+    h: 50,
+    union: { sx: 26, sy: 20, sw: 460, sh: 285 },
+    duration: 0.66,
+    lift: 54,          // px at the top of the arc
+    lead: 76,          // gap at which it gathers itself
+    cooldown: 0.45,    // ...and how long before it will jump again
+    // The frames, and the share of the jump each one holds. Feet are on
+    // the ground for the first two and the last two; the arc only lifts
+    // between them, so the crouch and the landing read properly.
+    frames: [
+      { trim: { sx: 38, sy: 100, sw: 435, sh: 186 }, until: 0.13 }, // crouch
+      { trim: { sx: 39, sy: 53, sw: 433, sh: 221 }, until: 0.24 },  // takeoff
+      { trim: { sx: 48, sy: 20, sw: 415, sh: 266 }, until: 0.40 },  // rising
+      { trim: { sx: 82, sy: 45, sw: 347, sh: 199 }, until: 0.53 },  // tucked
+      { trim: { sx: 26, sy: 56, sw: 460, sh: 182 }, until: 0.66 },  // stretched
+      { trim: { sx: 46, sy: 20, sw: 420, sh: 285 }, until: 0.80 },  // descending
+      { trim: { sx: 50, sy: 72, sw: 412, sh: 202 }, until: 0.91 },  // landing
+      { trim: { sx: 49, sy: 72, sw: 413, sh: 214 }, until: 1.01 },  // recovery
+    ],
+    airFrom: 0.24,     // feet leave the ground here...
+    airTo: 0.80,       // ...and are back down here
+  },
   wakeDurations: { waking: 0.35, headShake: 0.3, alert: 0.25 },
   runFps: 20,
   chase: {
@@ -1503,6 +1540,7 @@ function themeImageEntries(theme) {
   ["sleep", "waking", "headShake", "alert", "crash", "bite"]
     .forEach((k) => push(theme.chaser[k]));
   theme.chaser.run.forEach(push);
+  theme.chaser.jump.forEach(push);
   theme.flyer.fly.forEach(push);
   push(theme.flyer.hit);
   push(theme.flyer.fall);
@@ -1577,6 +1615,10 @@ function loadAssets() {
   images.dogRun = [];
   THEME.chaser.run.forEach((src, i) => {
     jobs.push(loadImage(src).then((img) => (images.dogRun[i] = img)));
+  });
+  images.dogJump = [];
+  THEME.chaser.jump.forEach((src, i) => {
+    jobs.push(loadImage(src).then((img) => (images.dogJump[i] = img)));
   });
   for (const type of Object.values(OBSTACLE_TYPES)) {
     jobs.push(
@@ -2467,6 +2509,8 @@ class Dog {
     this.chaseTime = 0;
     this.animTime = 0;
     this.done = false;
+    this.jumpT = null;      // 0..1 while clearing something, else null
+    this.jumpCool = 0;
     this.packOffset = 0; // set by DogDirector for extra pack members
     const p = DOG.poses.sleep;
     this.h = p.h;
@@ -2482,6 +2526,12 @@ class Dog {
     if (this.state === "alert") return { key: "alert", img: this.images.dog.alert };
     if (this.state === "stunned") return { key: "crash", img: this.images.dog.crash };
     if (this.state === "biting") return { key: "bite", img: this.images.dog.bite };
+    if (this.jumpT !== null && this.images.dogJump && this.images.dogJump.length) {
+      const f = DOG.jump.frames;
+      let i = 0;
+      while (i < f.length - 1 && this.jumpT > f[i].until) i++;
+      return { key: "run", img: this.images.dogJump[i], jump: f[i].trim };
+    }
     const frames = this.images.dogRun;
     const img = frames[Math.floor(this.animTime * DOG.runFps) % frames.length];
     return { key: "run", img };
@@ -2499,6 +2549,37 @@ class Dog {
   get y() {
     const sink = DOG.poses[this.currentPose().key].sink || 3;
     return this.groundY - this.h + sink;
+  }
+
+  /* How far off the ground the jump has it, in px. Only ever used when
+   * drawing: the hitbox stays down, so the chase plays out unchanged.
+   */
+  get jumpLift() {
+    if (this.jumpT === null) return 0;
+    const j = DOG.jump;
+    if (this.jumpT <= j.airFrom || this.jumpT >= j.airTo) return 0;
+    const t = (this.jumpT - j.airFrom) / (j.airTo - j.airFrom);
+    return Math.sin(t * Math.PI) * j.lift;   // up and back down
+  }
+
+  /* Start a jump if something solid is about to reach it. Obstacles pass
+   * the fox first and only then arrive here, and on the swamp the bank
+   * itself runs out - a dog treading water looked worse than one running
+   * through a log.
+   */
+  considerJump(dt, speed, obstacles, river) {
+    this.jumpCool = Math.max(0, this.jumpCool - dt);
+    if (this.jumpT !== null) {
+      this.jumpT += dt / DOG.jump.duration;
+      if (this.jumpT >= 1) { this.jumpT = null; this.jumpCool = DOG.jump.cooldown; }
+      return;
+    }
+    if (this.state !== "chasing" || this.jumpCool > 0) return;
+    const front = this.x + this.w;
+    const near = (edge) => edge > front && edge - front < DOG.jump.lead;
+    let go = obstacles && obstacles.some((o) => near(o.x));
+    if (!go && river) go = river.crossings.some((c) => near(c.x));
+    if (go) this.jumpT = 0;
   }
 
   wake() {
@@ -2521,7 +2602,8 @@ class Dog {
     this.syncBoxToPose();
   }
 
-  update(dt, speed, fox, score) {
+  update(dt, speed, fox, score, obstacles, river) {
+    this.considerJump(dt, speed, obstacles, river);
     this.stateTime += dt;
     switch (this.state) {
       case "sleeping": {
@@ -2602,6 +2684,20 @@ class Dog {
 
   draw(ctx) {
     const pose = this.currentPose();
+    if (pose.jump) {
+      /* One scale across the whole jump set, so the dog is the same dog
+       * mid-air as on the ground, bottom-anchored to the arc.
+       */
+      const j = DOG.jump;
+      const px = j.h / j.union.sh;
+      const t = pose.jump;
+      const w = t.sw * px;
+      const h = t.sh * px;
+      const dx = this.x + (this.w - w) / 2;
+      const dy = this.groundY + 3 - h - this.jumpLift;
+      ctx.drawImage(pose.img, t.sx, t.sy, t.sw, t.sh, dx, dy, w, h);
+      return;
+    }
     const t = DOG.poses[pose.key].trim;
     ctx.drawImage(pose.img, t.sx, t.sy, t.sw, t.sh, this.x, this.y, this.w, this.h);
   }
@@ -2637,7 +2733,7 @@ class DogDirector {
   }
 
   update(dt, speed, score, fox, obstacles, spawner, images, river) {
-    for (const d of this.dogs) d.update(dt, speed, fox, score);
+    for (const d of this.dogs) d.update(dt, speed, fox, score, obstacles, river);
     this.dogs = this.dogs.filter((d) => !d.done);
 
     // Keep the chasing pack staggered: front-most dog presses the fox,
