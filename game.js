@@ -1310,11 +1310,18 @@ class Sound {
     this.step = 0;
     this.nextTime = 0;
     this.progress = 0;
-    this.muted = false;
+    /* Quiet until asked. A game that starts making noise is a nuisance in
+     * a classroom, on a bus, or next to someone else's meeting, and a child
+     * cannot always reach the device fast enough to stop it. The speaker
+     * button shows a crossed-out icon so the sound is still discoverable,
+     * and whichever way it is set, that choice is what comes back.
+     */
+    this.muted = true;
     try {
-      this.muted = localStorage.getItem(MUTE_KEY) === "1";
+      const saved = localStorage.getItem(MUTE_KEY);
+      this.muted = saved !== "0"; // only an explicit "sound on" unmutes
     } catch (e) {
-      /* storage unavailable; default to on */
+      /* storage unavailable; stay quiet */
     }
   }
 
