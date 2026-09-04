@@ -3489,8 +3489,8 @@ const DECOR_BASE = {
   "woodland/scenery/tree_pine.png": 0.992,
   "mountain/scenery/bush_strip.png": 0.922,
   "swamp/scenery/trees/tree_01.png": 0.943,
-  "swamp/scenery/trees/tree_02.png": 0.920,
-  "swamp/scenery/trees/tree_03.png": 0.939,
+  "swamp/scenery/trees/tree_02.png": 0.893,
+  "swamp/scenery/trees/tree_03.png": 0.875,
 };
 
 // Cached on the image the first time it is asked for: this runs per decor
