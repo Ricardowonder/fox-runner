@@ -156,6 +156,23 @@ body {
   background: rgba(255, 255, 255, 0.28);
 }
 
+/* Pressed: the ring goes orange, the same orange the jump button charges
+   with, so the two controls speak the same language. Snaps on and eases
+   off. Driven by a class rather than :active - pointerdown is
+   preventDefault-ed on these, and a defaulted-away touch does not
+   reliably paint :active on iOS. */
+.pad-btn {
+  transition: border-color 200ms ease-out, box-shadow 200ms ease-out,
+              color 200ms ease-out;
+}
+
+.pad-btn.lit {
+  border-color: #ff9d2e;
+  color: #ffd9a8;
+  box-shadow: 0 0 9px rgba(255, 150, 40, 0.85);
+  transition: none;
+}
+
 .pad-up { top: 0; left: calc(var(--pad-btn) + var(--pad-gap)); }
 .pad-down { bottom: 0; left: calc(var(--pad-btn) + var(--pad-gap)); }
 .pad-left { left: 0; top: calc(var(--pad-btn) + var(--pad-gap)); }

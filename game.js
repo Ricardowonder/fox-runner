@@ -3723,7 +3723,7 @@ class Game {
         if (this.state === "running") {
           // He throws whichever way you point: back over his shoulder,
           // ahead, straight up, or down and forward.
-          if (!e.repeat) this.throwAcorn(ARROW_THROW[e.code]);
+          if (!e.repeat) { this.throwAcorn(ARROW_THROW[e.code]); this.litOn(ARROW_THROW[e.code]); }
         } else if (this.state === "levels") {
           // On the levels screen the arrows walk the grid instead.
           const cols = Math.min(5, LEVELS.length);
@@ -3739,6 +3739,9 @@ class Game {
     });
     document.addEventListener("keyup", (e) => {
       if (e.code === "Space") this.fox.releaseJump();
+      // The arrow keys light their arrow, so the on-screen pad shows what
+      // the keyboard is doing rather than sitting there dark.
+      else if (ARROW_THROW[e.code]) this.litOff(ARROW_THROW[e.code]);
     });
 
     this.bindTouchButtons();
@@ -3789,6 +3792,7 @@ class Game {
       back: document.getElementById("btn-throw-back"),
       forward: document.getElementById("btn-throw-forward"),
     };
+    this.throwBtns = throwBtns;   // the arrow keys light these too
     if (!jumpBtn || !pad) return;
 
     // preventDefault on pointerdown also stops the buttons from taking
@@ -3803,7 +3807,12 @@ class Game {
     };
     jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump(this.speed)));
     for (const [dir, btn] of Object.entries(throwBtns)) {
-      if (btn) btn.addEventListener("pointerdown", press(() => this.throwAcorn(dir)));
+      if (!btn) continue;
+      btn.addEventListener("pointerdown", press(() => this.throwAcorn(dir)));
+      btn.addEventListener("pointerdown", () => this.litOn(dir));
+      for (const ev of ["pointerup", "pointercancel", "pointerleave"]) {
+        btn.addEventListener(ev, () => this.litOff(dir));
+      }
     }
     /* A tap in the pad's dead corners does nothing at all. Falling
      * through to the canvas is how a near-miss used to pause the game.
@@ -4013,6 +4022,29 @@ class Game {
     this.state = "running";
     sound.unlock();
     sound.startMusic(THEME.music);
+  }
+
+  /* A pressed arrow lights up. Held by a class rather than :active,
+   * because pointerdown is preventDefault-ed on these buttons - that is
+   * what stops them taking focus and making Space "click" them - and a
+   * touch that has been defaulted away does not reliably paint :active on
+   * iOS. LIT_MIN keeps a quick flick visible: a throw is over in a frame,
+   * and an indicator you cannot see is not one.
+   */
+  litOn(dir) {
+    const btn = this.throwBtns && this.throwBtns[dir];
+    if (!btn) return;
+    clearTimeout(btn.litTimer);
+    btn.litAt = performance.now();
+    btn.classList.add("lit");
+  }
+
+  litOff(dir) {
+    const btn = this.throwBtns && this.throwBtns[dir];
+    if (!btn) return;
+    clearTimeout(btn.litTimer);
+    const left = Math.max(0, 140 - (performance.now() - (btn.litAt || 0)));
+    btn.litTimer = setTimeout(() => btn.classList.remove("lit"), left);
   }
 
   /* The ring on the JUMP button, filling from the bottom of the circle as
