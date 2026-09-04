@@ -12,13 +12,18 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fox Runner">
-  <link rel="stylesheet" href="style.css?v=92">
+  <link rel="stylesheet" href="style.css?v=93">
 </head>
 <body>
   <main class="game-wrap">
     <canvas id="game" aria-label="Fox Runner game"></canvas>
     <button id="btn-jump" class="touch-btn touch-btn-left" tabindex="-1" aria-label="Jump">JUMP</button>
-    <button id="btn-throw" class="touch-btn touch-btn-right" tabindex="-1" aria-label="Throw acorn">THROW</button>
+    <div id="throw-pad" class="throw-pad">
+    <button id="btn-throw-up" class="pad-btn pad-up" tabindex="-1" aria-label="Throw acorn upwards">&#9650;</button>
+    <button id="btn-throw-back" class="pad-btn pad-left" tabindex="-1" aria-label="Throw acorn behind">&#9664;</button>
+    <button id="btn-throw-forward" class="pad-btn pad-right" tabindex="-1" aria-label="Throw acorn ahead">&#9654;</button>
+    <button id="btn-throw-down" class="pad-btn pad-down" tabindex="-1" aria-label="Throw acorn down">&#9660;</button>
+  </div>
     <button id="btn-sound" class="fs-btn snd-btn" tabindex="-1" aria-label="Sound on or off">🔊</button>
     <button id="btn-fullscreen" class="fs-btn" tabindex="-1" aria-label="Full screen">⛶</button>
     <form id="name-entry" class="name-entry" hidden>
@@ -31,7 +36,7 @@
     </form>
   </main>
   <div class="rotate-hint">Rotate your phone to play</div>
-  <script src="game.js?v=92"></script>
+  <script src="game.js?v=93"></script>
   <script>
     // Offline support + installability (needs HTTPS or localhost).
     if ("serviceWorker" in navigator) {

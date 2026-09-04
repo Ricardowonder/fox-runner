@@ -1324,8 +1324,17 @@ const THROW_DIRS = {
   forward: { ...THROW_FWD, spin:  9, from: { x: 1,    y: 0.35 } },
   up:      { vx: 130, vy: -540, gravity: 900, cooldown: 0.4, size: 20,
              spin: 9, from: { x: 0.75, y: 0 } },
+  /* `down` leaves along the line the fox is already falling on, so the
+   * acorn and the fox dive together. His descent steepens as he falls -
+   * about 46 degrees just past the apex, 68 by the time he lands - and
+   * the throw follows it, clamped to that range so a throw made while he
+   * is rising, or with his feet on the ground, still goes down and
+   * forward rather than flat. Launch speed is constant; only the aim
+   * turns.
+   */
   down:    { vx: 300, vy:  520, gravity: 820, cooldown: 0.4, size: 20,
-             spin: 9, from: { x: 1,    y: 0.6 }, roll: true },
+             spin: 9, from: { x: 1,    y: 0.6 }, roll: true,
+             matchDescent: { min: 46 * Math.PI / 180, max: 70 * Math.PI / 180 } },
 };
 
 /* The bluebird: a flying hazard. It punishes being airborne at the wrong
@@ -2893,15 +2902,18 @@ class AcornShot {
    * down. Each flies differently, so the shot carries the settings it was
    * thrown with; what it may hit is decided where they are checked.
    */
-  constructor(x, y, image, dir) {
+  constructor(x, y, image, dir, angle) {
     const cfg = THROW_DIRS[dir] || THROW_DIRS.back;
     this.image = image;
     this.dir = THROW_DIRS[dir] ? dir : "back";
     this.cfg = cfg;
     this.x = x;
     this.y = y;
-    this.vx = cfg.vx;
-    this.vy = cfg.vy;
+    // An aim that turns (see THROW_DIRS.down) arrives as an angle and
+    // keeps the direction's launch speed.
+    const mag = Math.hypot(cfg.vx, cfg.vy);
+    this.vx = angle === undefined ? cfg.vx : Math.cos(angle) * mag;
+    this.vy = angle === undefined ? cfg.vy : Math.sin(angle) * mag;
     this.spin = 0;
     this.rolling = false;
     this.dead = false;
@@ -3730,8 +3742,14 @@ class Game {
     }
 
     const jumpBtn = document.getElementById("btn-jump");
-    const throwBtn = document.getElementById("btn-throw");
-    if (!jumpBtn || !throwBtn) return;
+    const pad = document.getElementById("throw-pad");
+    const throwBtns = {
+      up: document.getElementById("btn-throw-up"),
+      down: document.getElementById("btn-throw-down"),
+      back: document.getElementById("btn-throw-back"),
+      forward: document.getElementById("btn-throw-forward"),
+    };
+    if (!jumpBtn || !pad) return;
 
     // preventDefault on pointerdown also stops the buttons from taking
     // focus, which would otherwise make Space "click" them.
@@ -3744,7 +3762,13 @@ class Game {
       else this.tryStartFromButton();
     };
     jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump(this.speed)));
-    throwBtn.addEventListener("pointerdown", press(() => this.throwAcorn(this.touchThrowDir())));
+    for (const [dir, btn] of Object.entries(throwBtns)) {
+      if (btn) btn.addEventListener("pointerdown", press(() => this.throwAcorn(dir)));
+    }
+    /* A tap in the pad's dead corners does nothing at all. Falling
+     * through to the canvas is how a near-miss used to pause the game.
+     */
+    pad.addEventListener("pointerdown", (e) => e.preventDefault());
 
     // Releasing the jump button just stops the extra lift, like Space.
     const release = (e) => {
@@ -3754,7 +3778,7 @@ class Game {
     jumpBtn.addEventListener("pointerup", release);
     jumpBtn.addEventListener("pointercancel", release);
 
-    for (const btn of [jumpBtn, throwBtn]) {
+    for (const btn of [jumpBtn, pad]) {
       btn.addEventListener("contextmenu", (e) => e.preventDefault());
     }
 
@@ -3951,25 +3975,17 @@ class Game {
     sound.startMusic(THEME.music);
   }
 
-  /* Which way the one thumb button throws. Four buttons would be four
-   * more things to get wrong mid-run, and a five-year-old is not going to
-   * pick a direction under pressure - so there is still one button and it
-   * aims itself, at whatever is most likely to kill him: the dog ahead
-   * first (the one there is no jump away from), then the dog on his
-   * heels, then whatever is in the air. The arrow keys stay explicit.
+  /* The launch angle for an aim that follows the fox, or undefined for
+   * the fixed ones. He is stationary on screen and the world runs past
+   * him at `speed`, so the line he is travelling along through the world
+   * is atan2(vy, speed) - the same angle his dive reads at.
    */
-  touchThrowDir() {
-    const fb = this.fox.getHitbox();
-    const dogs = this.dogDirector.dogs;
-    const live = (d) => d.state !== "stunned" && d.state !== "tiring";
-    // Down, on the ground or in the air: it rolls, and the dog is on the
-    // ground. A forward throw arcs up into the birds and sails over him.
-    if (dogs.some((d) => live(d) && d.x > fb.x + fb.w)) return "down";
-    if (dogs.some((d) => live(d) && d.state !== "sleeping")) return "back";
-    const bird = this.birds.find((b) => !b.falling && b.x + b.w > fb.x);
-    // Nearly overhead - a flat forward throw would pass under it.
-    if (bird && bird.x < fb.x + fb.w + 90) return "up";
-    return "forward";
+  throwAngle(cfg) {
+    const m = cfg.matchDescent;
+    if (!m) return undefined;
+    const falling = !this.fox.onGround && this.fox.vy > 0;
+    const angle = falling ? Math.atan2(this.fox.vy, this.speed) : m.max;
+    return Math.min(Math.max(angle, m.min), m.max);
   }
 
   throwAcorn(dir) {
@@ -4215,9 +4231,10 @@ class Game {
         const fb = this.fox.getHitbox();
         // Each aim leaves him from a different place: behind, from the
         // front paw, over his head, or from under him on the way down.
-        const from = THROW_DIRS[this.pendingDir].from;
+        const cfg = THROW_DIRS[this.pendingDir];
+        const from = cfg.from;
         this.shots.push(new AcornShot(fb.x + fb.w * from.x, fb.y + fb.h * from.y,
-          this.images.acorn, this.pendingDir));
+          this.images.acorn, this.pendingDir, this.throwAngle(cfg)));
       }
     }
 
@@ -4574,7 +4591,7 @@ class Game {
         else right = Math.min(right, toCanvas(r.left) - PROGRESS.buttonGap);
       };
       clear("btn-jump", "left");
-      clear("btn-throw", "right");
+      clear("throw-pad", "right");
     }
     if (right - left < 160) { // degenerate layout: fall back to a centred bar
       left = GAME_W * 0.2;
@@ -5000,7 +5017,7 @@ class Game {
     const onLevels = this.state === "levels";
     if (this.thumbsHidden !== onLevels) {
       this.thumbsHidden = onLevels;
-      for (const id of ["btn-jump", "btn-throw"]) {
+      for (const id of ["btn-jump", "throw-pad"]) {
         const el = document.getElementById(id);
         if (el) el.hidden = onLevels;
       }
@@ -5146,7 +5163,7 @@ class Game {
     // Generous: while playing there is no reason to tap the bottom
     // corners other than aiming for JUMP or THROW.
     const pad = 55;
-    for (const id of ["btn-jump", "btn-throw"]) {
+    for (const id of ["btn-jump", "throw-pad"]) {
       const el = document.getElementById(id);
       if (!el || !el.offsetParent) continue;
       const r = el.getBoundingClientRect();
