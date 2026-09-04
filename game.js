@@ -3774,6 +3774,14 @@ class Game {
     }
 
     const jumpBtn = document.getElementById("btn-jump");
+    // The charge ring lives inside the button; hold on to its arcs so the
+    // per-frame update is two style writes and no lookups.
+    this.jumpRing = {
+      btn: jumpBtn,
+      arcs: jumpBtn ? Array.from(jumpBtn.querySelectorAll(".charge-arc")) : [],
+      level: -1,
+      on: false,
+    };
     const pad = document.getElementById("throw-pad");
     const throwBtns = {
       up: document.getElementById("btn-throw-up"),
@@ -4005,6 +4013,47 @@ class Game {
     this.state = "running";
     sound.unlock();
     sound.startMusic(THEME.music);
+  }
+
+  /* The ring on the JUMP button, filling from the bottom of the circle as
+   * the jump grows. It shows the height he is actually going to reach as
+   * a fraction of the most he can: half way round the moment he leaves
+   * the ground, because a tap is half of full stretch, climbing to the
+   * top while the button stays down.
+   *
+   * The level is linear in hold time, which is not the physics but is
+   * within a percent of it across the whole range (a 0.15s hold reaches
+   * 0.72 of full height; this says 0.71), and being exactly steady under
+   * the thumb matters more here than being exactly right.
+   */
+  drawJumpRing() {
+    const ring = this.jumpRing;
+    if (!ring || !ring.arcs.length) return;
+    const fox = this.fox;
+    /* Lit for as long as the button is down and he is still climbing.
+     * Not "until holdTime runs out" - the ring would then go dark under a
+     * thumb that was still pressing, which reads as losing the charge
+     * rather than having filled it. It stays full instead, and fades when
+     * the thumb lifts or he tips over into the fall.
+     */
+    const charging = this.state === "running" && !fox.dead &&
+      !fox.onGround && fox.vy < 0 && fox.holding;
+    // Still rising but no longer charging: keep the level it reached and
+    // let it fade, which is what makes a tap read as a flash to half.
+    const rising = this.state === "running" && !fox.dead && !fox.onGround && fox.vy < 0;
+    let level = ring.level;
+    if (rising) {
+      level = 0.5 + 0.5 * Math.min(fox.holdElapsed, PHYSICS.holdTime) / PHYSICS.holdTime;
+    }
+    if (Math.abs(level - ring.level) > 0.004) {
+      ring.level = level;
+      const off = String(1 - level);
+      for (const a of ring.arcs) a.style.strokeDashoffset = off;
+    }
+    if (charging !== ring.on) {
+      ring.on = charging;
+      ring.btn.classList.toggle("charging", charging);
+    }
   }
 
   /* The launch angle for an aim that follows the fox, or undefined for
@@ -5040,6 +5089,7 @@ class Game {
 
   draw() {
     const { ctx } = this;
+    this.drawJumpRing();
     ctx.clearRect(0, 0, GAME_W, GAME_H);
     this.uiButtons = [];
     /* JUMP and THROW are for playing. On the levels screen they do

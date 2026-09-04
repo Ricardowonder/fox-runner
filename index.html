@@ -12,12 +12,21 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fox Runner">
-  <link rel="stylesheet" href="style.css?v=94">
+  <link rel="stylesheet" href="style.css?v=95">
 </head>
 <body>
   <main class="game-wrap">
     <canvas id="game" aria-label="Fox Runner game"></canvas>
-    <button id="btn-jump" class="touch-btn touch-btn-left" tabindex="-1" aria-label="Jump">JUMP</button>
+    <button id="btn-jump" class="touch-btn touch-btn-left" tabindex="-1" aria-label="Jump">
+    <!-- Charge ring: two arcs climbing from the bottom of the circle to
+         meet at the top, so a jump reads as the button filling up.
+         pathLength="1" lets the dash maths run in plain 0..1. -->
+    <svg class="charge" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <path class="charge-arc" pathLength="1" d="M50,95 A45,45 0 0 1 50,5"/>
+      <path class="charge-arc" pathLength="1" d="M50,95 A45,45 0 0 0 50,5"/>
+    </svg>
+    <span class="touch-label">JUMP</span>
+  </button>
     <div id="throw-pad" class="throw-pad">
     <button id="btn-throw-up" class="pad-btn pad-up" tabindex="-1" aria-label="Throw acorn upwards">&#9650;</button>
     <button id="btn-throw-back" class="pad-btn pad-left" tabindex="-1" aria-label="Throw acorn behind">&#9664;</button>
@@ -36,7 +45,7 @@
     </form>
   </main>
   <div class="rotate-hint">Rotate your phone to play</div>
-  <script src="game.js?v=94"></script>
+  <script src="game.js?v=95"></script>
   <script>
     // Offline support + installability (needs HTTPS or localhost).
     if ("serviceWorker" in navigator) {

@@ -57,6 +57,43 @@ body {
 /* The tappable area reaches well beyond the visible circle. A thumb that
    lands just outside the button used to hit the canvas behind it and
    pause the game, which is a rotten way to lose a run. */
+/* The jump button's charge ring. It climbs from the bottom of the circle
+   as the button is held and shows, honestly, how high the jump in flight
+   is going to be: half way round the instant he leaves the ground,
+   because a tap is half the height he can reach, and all the way round
+   at full stretch. Let go and it stops where it got to and fades. */
+.charge {
+  position: absolute;
+  inset: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.charge-arc {
+  fill: none;
+  stroke: #ff9d2e;
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;                 /* empty until the game says otherwise */
+  opacity: 0;
+  filter: drop-shadow(0 0 5px rgba(255, 150, 40, 0.9));
+  transition: opacity 260ms ease-out;   /* the dissipate after a tap */
+}
+
+/* While the jump is charging the fill must track the hold exactly, so it
+   gets no transition; only the fade out is animated. */
+.charging .charge-arc {
+  opacity: 1;
+  transition: none;
+}
+
+.touch-label {
+  position: relative;   /* above the ring */
+}
+
 .touch-btn::after {
   content: "";
   position: absolute;
