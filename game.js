@@ -913,6 +913,15 @@ const FOX_CHASE_X = GAME_W * 0.36; // during a dog chase: near mid-screen —
                                    // player has less reaction room ahead
 const FOX_SHIFT_FORWARD = 150;     // px/s ease toward the chase position
 const FOX_SHIFT_BACK = 70;         // px/s ease home after the chase
+/* Being chased makes him run. Not a lot - he is fleeing, not sprinting -
+ * and the dog closes on him in SCREEN space, so a quicker world does not
+ * save him. Both this and the shift above only take effect once the dog
+ * is actually running: they used to start the moment it began waking,
+ * which is the moment the fox is sailing over it, and moving him forward
+ * mid-jump lengthened the jump he was already committed to.
+ */
+const FOX_CHASE_SPEEDUP = 1.08;    // pace while a dog is on him
+const FOX_URGE_RATE = 0.5;         // per second, in and out of that pace
 
 /* Source trims for the fox poses (fixed pixel rects measured from the art).
  * NOTE: all trim rects in this file are in the pixel space of the SHIPPED
@@ -2149,9 +2158,12 @@ class Fox {
       this.throwTime += dt;
       if (this.throwTime >= THROW_ANIM.duration) this.throwTime = null;
     }
-    // Ease toward the current screen position (forward fast when a chase
-    // starts, drifting home slowly after it ends).
-    if (this.x !== this.targetX) {
+    /* Ease toward the current screen position (forward fast when a chase
+     * starts, drifting home slowly after it ends) - but only with his feet
+     * down. Sliding him forward in mid-air moves where he lands, which
+     * turned a cleared gap into a fall and a cleared obstacle into a hit.
+     */
+    if (this.x !== this.targetX && this.onGround) {
       const rate = this.targetX > this.x ? FOX_SHIFT_FORWARD : FOX_SHIFT_BACK;
       const step = rate * dt;
       this.x += Math.min(Math.abs(this.targetX - this.x), step) * Math.sign(this.targetX - this.x);
@@ -3510,6 +3522,7 @@ class Game {
     this.acornCount = 0; // ammunition for throws
     this.shots = [];
     this.throwCooldown = 0;
+    this.chaseUrge = 0;      // 0..1 how hard he is running from a dog
     this.distance = 0;
     this.score = 0;   // distance score WITHIN the current level
     this.carried = 0;       // banked from levels finished in this life
@@ -3771,6 +3784,7 @@ class Game {
     this.acorns = [];
     this.shots = [];
     this.throwCooldown = 0;
+    this.chaseUrge = 0;      // 0..1 how hard he is running from a dog
     this.pendingRelease = null;
     this.pendingForward = false;
     // Resume from the furthest stage banked this session.
@@ -4029,7 +4043,10 @@ class Game {
   }
 
   update(dt) {
-    this.speed = difficultyAt(this.score).speed;
+    // chaseUrge eases 0..1 while a dog is running (see below); one frame
+    // behind, which is invisible and keeps the ordering simple.
+    this.speed = difficultyAt(this.score).speed *
+      (1 + (FOX_CHASE_SPEEDUP - 1) * this.chaseUrge);
     // Once he is going down the hole, everything stops. Otherwise the
     // ground kept scrolling under a burrow that had stopped moving with
     // it, and the burrow appeared to slide across the world.
@@ -4091,12 +4108,21 @@ class Game {
     }
     this.dogDirector.update(dt, this.speed, this.score, this.fox, this.obstacles,
       this.spawner, this.images, THEME.river ? this.river : null);
-    // A woken dog pushes the fox toward mid-screen: the chase fits on
-    // screen behind him and obstacles arrive with less warning.
-    const dogPressure = this.dogDirector.dogs.some(
-      (d) => d.state !== "sleeping" && d.state !== "stunned" && d.state !== "tiring"
-    );
-    this.fox.targetX = dogPressure ? FOX_CHASE_X : FOX_X;
+    /* A dog that is actually RUNNING pushes the fox toward mid-screen and
+     * lifts his pace: the chase fits on screen behind him and obstacles
+     * arrive with less warning. A dog still getting up does neither - it
+     * wakes as the fox jumps over it, and both effects would move his
+     * landing spot mid-flight. While it gets up he holds his line and it
+     * scrolls back with the world, so the chase begins further behind.
+     *
+     * Both only move while his feet are down, for the same reason.
+     */
+    const dogChasing = this.dogDirector.dogs.some((d) => d.state === "chasing");
+    if (this.fox.onGround) {
+      this.fox.targetX = dogChasing ? FOX_CHASE_X : FOX_X;
+      const to = (dogChasing ? 1 : 0) - this.chaseUrge;
+      this.chaseUrge += Math.min(Math.abs(to), FOX_URGE_RATE * dt) * Math.sign(to);
+    }
     this.throwCooldown = Math.max(0, this.throwCooldown - dt);
     if (this.pendingRelease != null) {
       this.pendingRelease -= dt;
@@ -4963,6 +4989,7 @@ class Game {
     this.birds = [];
     this.shots = [];
     this.popups = [];
+    this.chaseUrge = 0;
     this.dogDirector.reset();
     this.fox.reset();
     this.levelChoice = Math.min(levelIndex, pickableLevels(this.furthest) - 1);
