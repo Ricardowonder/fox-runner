@@ -201,6 +201,11 @@ function makeTheme(dir, label, opts) {
      * own bands. A theme that says nothing uses the shared GROUND crops.
      */
     groundCrops: opts.groundCrops,
+    /* One small picture of this place for the levels screen. Built from
+     * this theme's own artwork by tools/make_thumbs.py, so adding a level
+     * means re-running that rather than commissioning anything.
+     */
+    thumb: `assets/themes/${dir}/thumb.jpg`,
     // Settings with gaps in the bank the fox can fall through. Only the
     // river asks for this; everywhere else the ground is one strip and
     // none of the crossing code runs at all.
@@ -1655,6 +1660,21 @@ function loadAssets() {
   bindTheme();
   const images = {};
   const jobs = [];
+  /* Thumbnails for the whole ladder, not just this level: the levels
+   * screen has to show the ones you have not reached, and that is the
+   * point of them. Eight kilobytes each, so the whole set costs less than
+   * one sprite. A missing one is not fatal - the tile falls back to a
+   * plain plate - so these never reject.
+   */
+  images.thumbs = {};
+  for (const lv of LEVELS) {
+    const theme = THEMES[lv.theme];
+    if (!theme || images.thumbs[lv.theme] !== undefined) continue;
+    images.thumbs[lv.theme] = null;
+    jobs.push(loadImage(theme.thumb)
+      .then((img) => (images.thumbs[lv.theme] = img))
+      .catch(() => {}));
+  }
   for (const [key, src] of Object.entries(IMAGE_SOURCES)) {
     jobs.push(loadImage(src).then((img) => (images[key] = img)));
   }
@@ -3598,7 +3618,6 @@ class Game {
     this.furthest = readFurthest();
     // Returning players start at the furthest setting they have reached.
     this.levelChoice = this.furthest;
-    this.levelChips = [];
     this.speed = DIFFICULTY.bands[0].speed;
     this.scroll = 0; // total scrolled px, drives parallax offsets
     this.blinkTime = 0;
@@ -3661,13 +3680,17 @@ class Game {
           // He throws whichever way you point: back over his shoulder,
           // ahead, straight up, or down and forward.
           if (!e.repeat) this.throwAcorn(ARROW_THROW[e.code]);
-        } else if ((e.code === "ArrowLeft" || e.code === "ArrowRight") &&
-                   this.state === "ready" && pickableLevels(this.furthest) > 1) {
-          // On the intro the arrows pick a setting instead.
-          const step = e.code === "ArrowRight" ? 1 : -1;
+        } else if (this.state === "levels") {
+          // On the levels screen the arrows walk the grid instead.
+          const cols = Math.min(5, LEVELS.length);
+          const step = { ArrowRight: 1, ArrowLeft: -1,
+                         ArrowDown: cols, ArrowUp: -cols }[e.code];
           const top = pickableLevels(this.furthest) - 1;
           this.levelChoice = Math.min(Math.max(this.levelChoice + step, 0), top);
         }
+      } else if (e.code === "Escape" && this.state === "levels") {
+        e.preventDefault();
+        this.state = "ready";
       }
     });
     document.addEventListener("keyup", (e) => {
@@ -3762,30 +3785,20 @@ class Game {
         return;
       }
       if (this.state === "paused") { this.resumeRun(); return; }
-      if (this.levelChips.length &&
-          (this.state === "ready" || (TEST_LEVELS && this.state === "gameover"))) {
-        // Map the tap into canvas coordinates before hit-testing the chips.
-        const r2 = this.canvas.getBoundingClientRect();
-        const cx = (e.clientX - r2.left) * (GAME_W / r2.width);
-        const cy = (e.clientY - r2.top) * (GAME_H / r2.height);
-        const hit = this.chipAt(cx, cy);
-        if (hit >= 0) {
-          if (this.state === "ready") {
-            this.levelChoice = hit;
-          } else {
-            // TESTING ONLY: straight into the chosen setting.
-            if (performance.now() - this.gameOverAt < 600) return;
-            this.beginNewRun(hit);
-            return;
-          }
-        }
-      }
+      // The levels screen is all buttons; a tap on the background there
+      // must not fall through and start a run.
+      if (this.state === "levels") return;
       if (this.state !== "running") this.tryStartFromButton();
     });
   }
 
   tryStartFromButton() {
-    if (this.state === "ready") this.beginNewRun(this.levelChoice);
+    /* ENTER does whatever the primary button says: carry on from the
+     * furthest level reached, or start at the beginning if there is no
+     * progress yet.
+     */
+    if (this.state === "ready") this.beginNewRun(Math.min(this.furthest, LEVELS.length - 1));
+    else if (this.state === "levels") this.beginNewRun(this.levelChoice);
     else if (this.state === "gameover" && performance.now() - this.gameOverAt > 600) this.startRun();
     else if (this.state === "levelcomplete" && performance.now() - this.levelDoneAt > 600) this.advanceLevel();
   }
@@ -4769,49 +4782,124 @@ class Game {
   }
 
   // Start-screen controls panel: one row per key, on a soft dark panel.
-  /* Settings unlocked so far, as tappable chips. Only appears once there
-   * is a choice to make - a lone chip would just be furniture.
+  /* The levels screen. A grid of numbered tiles, each showing the place
+   * it leads to; the ones you have not reached yet are blurred behind a
+   * padlock, so a locked tile still reads as somewhere to get to rather
+   * than as empty furniture.
+   *
+   * Laid out for twenty - five across, four down - which is as many as
+   * 900x300 will hold at a size a small finger can hit. The old row of
+   * text chips ran out of room at about nine, and sat at the top of one
+   * screen and the bottom of another.
    */
-  drawLevelPicker(ctx, y = 246) {
-    this.levelChips = [];
-    const count = pickableLevels(this.furthest);
-    if (count < 2) return;
-    const chipH = 26;
-    const gap = 10;
-    ctx.save();
-    ctx.font = "bold 13px 'Courier New', Courier, monospace";
-    const widths = [];
-    for (let i = 0; i < count; i++) {
-      widths.push(ctx.measureText(THEMES[LEVELS[i].theme].label.toUpperCase()).width + 26);
-    }
-    const total = widths.reduce((a, b) => a + b, 0) + gap * (count - 1);
-    let x = GAME_W / 2 - total / 2;
+  drawLevels() {
+    const { ctx } = this;
+    const open = pickableLevels(this.furthest);
+    const cols = Math.min(5, LEVELS.length);
+    const rows = Math.ceil(LEVELS.length / cols);
+    const gapX = 14, gapY = 10;
+    /* Tiles keep the thumbnail's 3:1 shape and grow to fill whatever room
+     * the ladder leaves: big and generous at four levels, still a
+     * comfortable target at twenty.
+     */
+    const TOP = 42, BOTTOM = 46;   // the title, and the BACK button's row
+    const roomW = (GAME_W - 90 - gapX * (cols - 1)) / cols;
+    const roomH = (GAME_H - TOP - BOTTOM - gapY * (rows - 1)) / rows;
+    const tileH = Math.min(roomW / 2.92, roomH, 64);
+    const tileW = tileH * 2.92;
+    const gridW = cols * tileW + gapX * (cols - 1);
+    const gridH = rows * tileH + gapY * (rows - 1);
+    const x0 = (GAME_W - gridW) / 2;
+    const y0 = TOP + (GAME_H - TOP - BOTTOM - gridH) / 2;
 
-    for (let i = 0; i < count; i++) {
-      const w = widths[i];
-      const on = i === this.levelChoice;
-      roundRectPath(ctx, x, y - chipH / 2, w, chipH, 7);
-      ctx.fillStyle = on ? "rgba(255, 224, 138, 0.95)" : "rgba(20, 32, 18, 0.62)";
-      ctx.fill();
-      ctx.strokeStyle = on ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.45)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = on ? "#17241b" : "rgba(255, 255, 255, 0.92)";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(THEMES[LEVELS[i].theme].label.toUpperCase(), x + w / 2, y + 1);
-      this.levelChips.push({ x, y: y - chipH / 2, w, h: chipH, index: i });
-      x += w + gap;
+    ctx.save();
+    ctx.fillStyle = "#1c2a1e";
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.font = "bold 22px 'Courier New', Courier, monospace";
+    ctx.fillText("CHOOSE A LEVEL", GAME_W / 2, 24);
+
+    for (let i = 0; i < LEVELS.length; i++) {
+      const x = x0 + (i % cols) * (tileW + gapX);
+      const y = y0 + Math.floor(i / cols) * (tileH + gapY);
+      this.drawLevelTile(x, y, tileW, tileH, i, i < open);
     }
+    ctx.restore();
+    this.drawButtonRow(ctx, [{ label: "BACK", action: "menu" }], GAME_H - 18);
+  }
+
+  drawLevelTile(x, y, w, h, index, unlocked) {
+    const { ctx } = this;
+    const img = this.images.thumbs && this.images.thumbs[LEVELS[index].theme];
+    ctx.save();
+    roundRectPath(ctx, x, y, w, h, 8);
+    ctx.save();
+    ctx.clip();
+    if (img) {
+      if (unlocked) {
+        ctx.drawImage(img, x, y, w, h);
+      } else {
+        /* Blur by bouncing it through a tiny canvas rather than with
+         * ctx.filter, which older phone browsers quietly ignore - and a
+         * locked level that came out sharp would give the game away.
+         */
+        const b = this.blurCanvas || (this.blurCanvas = document.createElement("canvas"));
+        b.width = 14; b.height = 6;
+        const bc = b.getContext("2d");
+        bc.clearRect(0, 0, b.width, b.height);
+        bc.drawImage(img, 0, 0, b.width, b.height);
+        ctx.imageSmoothingEnabled = true;
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(b, x, y, w, h);
+        ctx.globalAlpha = 1;
+      }
+    } else {
+      ctx.fillStyle = unlocked ? "#3d5c3a" : "#26332a";
+      ctx.fillRect(x, y, w, h);
+    }
+    if (!unlocked) {
+      ctx.fillStyle = "rgba(14, 22, 16, 0.55)";
+      ctx.fillRect(x, y, w, h);
+    }
+    ctx.restore();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = unlocked
+      ? (index === this.levelChoice ? "rgba(255, 224, 138, 0.95)" : "rgba(255, 255, 255, 0.75)")
+      : "rgba(255, 255, 255, 0.22)";
+    ctx.stroke();
+
+    // The number sits on a dark plate so it stays readable over any art.
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 17px 'Courier New', Courier, monospace";
+    const label = String(index + 1);
+    const plate = Math.max(24, ctx.measureText(label).width + 16);
+    roundRectPath(ctx, x + 5, y + h - 23, plate, 18, 5);
+    ctx.fillStyle = "rgba(14, 22, 16, 0.72)";
+    ctx.fill();
+    ctx.fillStyle = unlocked ? "rgba(255, 255, 255, 0.96)" : "rgba(255, 255, 255, 0.45)";
+    ctx.fillText(label, x + 5 + plate / 2, y + h - 13);
+
+    if (!unlocked) this.drawPadlock(x + w - 20, y + h / 2 - 1);
+    if (unlocked) this.uiButtons.push({ x, y, w, h, action: "level:" + index });
     ctx.restore();
   }
 
-  // Which chip, if any, a tap landed on. Canvas coordinates.
-  chipAt(cx, cy) {
-    for (const c of this.levelChips) {
-      if (cx >= c.x && cx <= c.x + c.w && cy >= c.y && cy <= c.y + c.h) return c.index;
-    }
-    return -1;
+  drawPadlock(cx, cy) {
+    const { ctx } = this;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy - 3, 4.5, Math.PI, 0);   // the shackle
+    ctx.stroke();
+    roundRectPath(ctx, cx - 6.5, cy - 3, 13, 11, 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   drawControlsPanel() {
@@ -4868,7 +4956,19 @@ class Game {
     ctx.restore();
 
     this.drawControlsPanel();
-    this.drawLevelPicker(ctx);
+    /* One row, in the same place on every screen that offers it. CONTINUE
+     * appears only once there is somewhere to continue TO, and drops you
+     * straight into the furthest level you have unlocked.
+     */
+    const buttons = [];
+    if (this.furthest > 0) {
+      buttons.push({ label: "CONTINUE", action: "continue-level", primary: true });
+      buttons.push({ label: "LEVELS", action: "levels" });
+    } else {
+      buttons.push({ label: "PLAY", action: "play", primary: true });
+      if (pickableLevels(this.furthest) > 1) buttons.push({ label: "LEVELS", action: "levels" });
+    }
+    this.drawButtonRow(ctx, buttons, 250);
 
     if (this.blinkTime % 1 < 0.65) {
       ctx.save();
@@ -4881,10 +4981,10 @@ class Game {
       // When there is a choice of setting, say so rather than leaving the
       // chips looking like decoration.
       const prompt = this.furthest > 0
-        ? "Tap a level, or press ENTER to start"
+        ? "Press ENTER to carry on"
         : "Press ENTER or tap to start";
-      ctx.strokeText(prompt, GAME_W / 2, 281);
-      ctx.fillText(prompt, GAME_W / 2, 281);
+      ctx.strokeText(prompt, GAME_W / 2, 288);
+      ctx.fillText(prompt, GAME_W / 2, 288);
       ctx.restore();
     }
   }
@@ -4893,11 +4993,29 @@ class Game {
     const { ctx } = this;
     ctx.clearRect(0, 0, GAME_W, GAME_H);
     this.uiButtons = [];
+    /* JUMP and THROW are for playing. On the levels screen they do
+     * nothing and they sit right on top of the first and last tile, so
+     * they go away while it is up.
+     */
+    const onLevels = this.state === "levels";
+    if (this.thumbsHidden !== onLevels) {
+      this.thumbsHidden = onLevels;
+      for (const id of ["btn-jump", "btn-throw"]) {
+        const el = document.getElementById(id);
+        if (el) el.hidden = onLevels;
+      }
+    }
 
     if (this.state === "ready") {
       this.drawIntro();
       return;
     }
+
+    if (this.state === "levels") {
+      this.drawLevels();
+      return;
+    }
+
 
     if (this.state === "loading") {
       ctx.fillStyle = "#1c2a1e";
@@ -4905,7 +5023,7 @@ class Game {
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.font = "bold 22px 'Courier New', Courier, monospace";
-      ctx.fillText(`${THEME.label}...`, GAME_W / 2, GAME_H / 2);
+      ctx.fillText(`LEVEL ${levelIndex + 1}...`, GAME_W / 2, GAME_H / 2);
       return;
     }
     if (this.state === "levelcomplete") {
@@ -5053,6 +5171,25 @@ class Game {
     else if (action === "exit") this.exitToMenu();
     else if (action === "continue") this.startRun();
     else if (action === "restart") { this.resetProgress(); this.startRun(); }
+    else if (action === "levels") this.openLevels();
+    else if (action === "menu") { this.state = "ready"; }
+    else if (action === "play") this.beginNewRun(0);
+    // Carry on from the furthest level reached, which is what the button
+    // is for: one tap back to where you got to.
+    else if (action === "continue-level") this.beginNewRun(this.furthest);
+    else if (action.startsWith("level:")) {
+      const i = Number(action.slice(6));
+      if (i >= 0 && i < pickableLevels(this.furthest)) this.beginNewRun(i);
+    }
+  }
+
+  /* The levels screen is reachable from the title, from game over and
+   * from finishing a level - always through a button in the same place,
+   * so it is one thing to learn rather than three.
+   */
+  openLevels() {
+    this.levelChoice = Math.min(this.furthest, LEVELS.length - 1);
+    this.state = "levels";
   }
 
   // Back to the title screen. The run is over either way, so the banked
@@ -5131,9 +5268,9 @@ class Game {
       ctx.fillText(text, GAME_W / 2, y);
     };
     const next = LEVELS[levelIndex + 1];
-    line(`${THEME.label.toUpperCase()} COMPLETE!`,
+    line(`LEVEL ${levelIndex + 1} COMPLETE!`,
          "bold 40px 'Courier New', Courier, monospace", 46);
-    line(next ? `Get ready for the ${THEMES[next.theme].label}` : "You made it home",
+    line(next ? `Get ready for level ${levelIndex + 2}` : "You made it home",
          "bold 17px 'Courier New', Courier, monospace", 80);
 
     // The run's tally, on a panel sized to sit between the sulking dog on
@@ -5187,15 +5324,13 @@ class Game {
 
     this.drawScoreTable(ctx, outlined);
 
-    // TESTING ONLY: jump to any setting without replaying the earlier ones.
-    if (TEST_LEVELS && !this.nameOpen) this.drawLevelPicker(ctx, 42);
-
     if (!this.nameOpen) {
       const buttons = [{ label: "CONTINUE", action: "continue", primary: true }];
       // Continuing rejoins at a banked stage; with none there is nothing
       // to continue FROM, so offer the run again instead.
       if (this.checkpoint.stage === 0) buttons[0].label = "PLAY AGAIN";
       else buttons.push({ label: "RESTART", action: "restart" });
+      if (pickableLevels(this.furthest) > 1) buttons.push({ label: "LEVELS", action: "levels" });
       buttons.push({ label: "EXIT", action: "exit" });
       this.drawButtonRow(ctx, buttons, 273);
     }
