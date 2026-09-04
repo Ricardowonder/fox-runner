@@ -779,7 +779,31 @@ const GROUND = {
  * round, so a quick press can never produce a fatal little hop.
  */
 const PHYSICS = {
-  apex: 108,             // peak height of a TAP jump, px (constant)
+  /* Peak height of the SHORTEST jump - a bare tap, released at once.
+   * Everything above it is bought by holding, continuously, so how high
+   * he goes is the player's to choose rather than a switch with two
+   * positions.
+   *
+   * A tap has never been enough for the tall animals, whatever the old
+   * comment here claimed: at the previous 108 the snake could not be
+   * cleared by tapping at all and the bear left a 0.04s window, so those
+   * have always wanted a hold. Dropping to 85 widens the range the player
+   * controls and moves the badger and the gator into the same bracket;
+   * level one stays comfortably tappable throughout (0.31s on a hedgehog,
+   * 0.20s on the stump, at the worst speed).
+   *
+   * Worst-case window on each level's tallest obstacle, HOLDING, which is
+   * how the game is actually played - all of them wider than before:
+   *
+   *    level 1 stump    0.480s -> 0.565s      level 3 bear   0.325 -> 0.380
+   *    level 2 badger   0.385s -> 0.450s      level 4 snake  0.295 -> 0.355
+   *
+   * This does NOT shorten the jump. Airtime comes from the lerp below and
+   * does not depend on apex, so a low jump carries him exactly as far as
+   * a high one - which is what keeps every river crossing, all of them
+   * sized from jumpSpan, clearable off a tap.
+   */
+  apex: 85,
   riseFrac: 0.52,        // share of airtime spent rising (fall is snappier)
   // Airtime scales with game speed so the jump carries the fox a similar
   // DISTANCE at any speed. Without this the opening is the hardest part
@@ -789,12 +813,20 @@ const PHYSICS = {
   airtimeFast: 0.76,     // seconds, at fastSpeed
   slowSpeed: 215,
   fastSpeed: 515,
-  // Holding lifts the fox roughly half again as high as a tap, so a tap
-  // is a modest hop and a held press is a big soaring jump. The tap is
-  // still sized to clear every obstacle on its own - a genuinely tiny
-  // tap would leave a young player unable to get over anything.
-  holdGravityFactor: 0.40, // gravity multiplier while the button is held...
-  holdTime: 0.25,          // ...for this long -> hold apex ~155px
+  /* Holding doubles the height of the hop, and every height between is
+   * available - let go at any point and that is where he tops out. The
+   * ceiling is where it was; it is the floor that dropped.
+   *
+   *    tap         85px     hold 0.15s   123px
+   *    hold 0.03s  93px     hold 0.25s   147px
+   *    hold 0.06s 100px     hold 0.35s   170px  (capped)
+   *
+   * The softer factor and longer window are what get back to the old
+   * ceiling from a lower launch: the same 0.40/0.25s from an 85px base
+   * only reached 133.
+   */
+  holdGravityFactor: 0.25, // gravity multiplier while the button is held...
+  holdTime: 0.35,          // ...for this long -> hold apex ~169px
   // A moment of grace after running off the end of a bank. Young players
   // step off an edge and only then think to jump.
   coyoteTime: 0.10,
