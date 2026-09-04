@@ -1291,9 +1291,37 @@ function dogChaseTuning(score) {
   return t;
 }
 
-// Thrown acorns (ArrowLeft). Screen-relative backward flight with a
-// gentle arc; hitting any dog stops it.
+// Thrown back over his shoulder (ArrowLeft). Screen-relative backward
+// flight with a gentle arc; hitting any dog stops it.
 const THROW = { vx: -430, vy: -140, gravity: 900, cooldown: 0.4, size: 20 };
+
+// Which arrow key throws which way.
+const ARROW_THROW = {
+  ArrowLeft: "back", ArrowRight: "forward", ArrowUp: "up", ArrowDown: "down",
+};
+
+/* The four aims. Velocities are screen-relative, like the bird's, so a
+ * shot closes on anything ahead at its own speed PLUS the world's.
+ *
+ * Two of them go at the birds - `forward` on a long flat arc through the
+ * band they cruise in, `up` peaking around 205px for one almost overhead,
+ * where a forward throw would pass underneath it. `down` is the one that
+ * earns its keep: committed to a jump over water with a dog waiting on
+ * the far lip, no jump saves you and there is nothing behind you to throw
+ * at. It lands and then rolls (see AcornShot.update), which is what makes
+ * it reliable at a range he cannot judge in the air.
+ *
+ * `from` is where the acorn leaves him, as a fraction of his hitbox.
+ * `spin` is only which way it tumbles.
+ */
+const THROW_DIRS = {
+  back:    { ...THROW,     spin: -9, from: { x: 0,    y: 0.35 } },
+  forward: { ...THROW_FWD, spin:  9, from: { x: 1,    y: 0.35 } },
+  up:      { vx: 130, vy: -540, gravity: 900, cooldown: 0.4, size: 20,
+             spin: 9, from: { x: 0.75, y: 0 } },
+  down:    { vx: 300, vy:  520, gravity: 820, cooldown: 0.4, size: 20,
+             spin: 9, from: { x: 1,    y: 0.6 }, roll: true },
+};
 
 /* The bluebird: a flying hazard. It punishes being airborne at the wrong
  * moment (mid-jump for an acorn or an obstacle) and never touches a fox
@@ -2069,9 +2097,13 @@ class Fox {
     this.coyote = PHYSICS.coyoteTime; // grace after running off a bank
   }
 
-  startThrow(forward) {
+  startThrow(dir) {
     this.throwTime = 0;
-    this.throwForward = !!forward;
+    /* Only two throw animations exist: over the shoulder and ahead. Up
+     * and down borrow the forward one - the wind-up reads the same and
+     * the acorn's own flight says where it went.
+     */
+    this.throwForward = dir !== "back";
   }
 
   // True once he is past saving: in the water, below the bank.
@@ -2835,32 +2867,61 @@ class DogDirector {
   }
 }
 
-// An acorn thrown backward (ArrowLeft). Screen-relative arc; stops a dog.
+// A thrown acorn. Screen-relative arc; stops the dog or bird it meets.
 class AcornShot {
-  /* `forward` throws it ahead of the fox instead of back over his
-   * shoulder. The two are aimed at different things - back at the dog on
-   * the ground, forward at the birds - so each shot carries the settings
-   * it was thrown with.
+  /* `dir` is one of THROW_DIRS - back over his shoulder, ahead, up or
+   * down. Each flies differently, so the shot carries the settings it was
+   * thrown with; what it may hit is decided where they are checked.
    */
-  constructor(x, y, image, forward) {
-    const cfg = forward ? THROW_FWD : THROW;
+  constructor(x, y, image, dir) {
+    const cfg = THROW_DIRS[dir] || THROW_DIRS.back;
     this.image = image;
-    this.forward = !!forward;
+    this.dir = THROW_DIRS[dir] ? dir : "back";
     this.cfg = cfg;
     this.x = x;
     this.y = y;
     this.vx = cfg.vx;
     this.vy = cfg.vy;
     this.spin = 0;
+    this.rolling = false;
     this.dead = false;
   }
 
-  update(dt, groundY) {
-    this.vy += this.cfg.gravity * dt;
+  /* `surfaceAt(x)` is the ground under the acorn: the bank, the top of a
+   * stepping stone, or null over open water.
+   */
+  update(dt, surfaceAt) {
+    const ground = surfaceAt(this.x);
+    if (this.rolling) {
+      /* Over open water it skips instead of sinking. Throwing down is his
+       * answer to a dog waiting on the far bank, and he has to throw it
+       * while already committed to the jump - if the water swallowed it,
+       * the one aim that saves him there would be the one that cannot
+       * reach. So it skitters across, hopping as it goes.
+       */
+      const top = ground === null ? GROUND_Y : ground;
+      const hop = ground === null ? Math.abs(Math.sin(this.x * 0.055)) * 12 : 0;
+      this.y = top - this.cfg.size / 2 - hop;
+    } else {
+      this.vy += this.cfg.gravity * dt;
+      this.y += this.vy * dt;
+    }
     this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    this.spin += this.forward ? 9 * dt : -9 * dt;
-    if (this.y > groundY + 10 || this.x < -40 || this.x > GAME_W + 60) this.dead = true;
+    this.spin += this.cfg.spin * dt;
+    /* A down-thrown acorn does not stop where it lands - it skitters on
+     * along the ground. That is what makes the aim usable: he throws it
+     * committed to a jump, long before he can know where the dog on the
+     * far bank will have got to by the time it arrives.
+     */
+    if (this.cfg.roll && !this.rolling && ground !== null &&
+        this.vy > 0 && this.y + this.cfg.size / 2 >= ground) {
+      this.rolling = true;
+      this.y = ground - this.cfg.size / 2;
+      this.vy = 0;
+    }
+    const floor = ground === null ? GROUND_Y + 60 : ground + 10;
+    if (this.x < -40 || this.x > GAME_W + 60 ||
+        (!this.rolling && this.y > floor)) this.dead = true;
   }
 
   getBox() {
@@ -3594,13 +3655,14 @@ class Game {
         e.preventDefault();
         if (this.state === "paused" && !e.repeat) { this.resumeRun(); return; }
         if (this.state === "running" && !e.repeat) this.fox.jump(this.speed);
-      } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+      } else if (ARROW_THROW[e.code]) {
         e.preventDefault();
         if (this.state === "running") {
-          // Left throws back over his shoulder at the dog, right throws
-          // ahead at the birds.
-          if (!e.repeat) this.throwAcorn(e.code === "ArrowRight");
-        } else if (this.state === "ready" && pickableLevels(this.furthest) > 1) {
+          // He throws whichever way you point: back over his shoulder,
+          // ahead, straight up, or down and forward.
+          if (!e.repeat) this.throwAcorn(ARROW_THROW[e.code]);
+        } else if ((e.code === "ArrowLeft" || e.code === "ArrowRight") &&
+                   this.state === "ready" && pickableLevels(this.furthest) > 1) {
           // On the intro the arrows pick a setting instead.
           const step = e.code === "ArrowRight" ? 1 : -1;
           const top = pickableLevels(this.furthest) - 1;
@@ -3659,7 +3721,7 @@ class Game {
       else this.tryStartFromButton();
     };
     jumpBtn.addEventListener("pointerdown", press(() => this.fox.jump(this.speed)));
-    throwBtn.addEventListener("pointerdown", press(() => this.throwAcorn(this.touchThrowForward())));
+    throwBtn.addEventListener("pointerdown", press(() => this.throwAcorn(this.touchThrowDir())));
 
     // Releasing the jump button just stops the extra lift, like Space.
     const release = (e) => {
@@ -3786,7 +3848,7 @@ class Game {
     this.throwCooldown = 0;
     this.chaseUrge = 0;      // 0..1 how hard he is running from a dog
     this.pendingRelease = null;
-    this.pendingForward = false;
+    this.pendingDir = "back";
     // Resume from the furthest stage banked this session.
     this.score = this.checkpoint.score;
     // Dying ends a score for good. A checkpoint only says where to rejoin.
@@ -3876,28 +3938,37 @@ class Game {
     sound.startMusic(THEME.music);
   }
 
-  /* Which way the one thumb button throws. Birds are held back while a
-   * dog is awake - the spawner allows one threat at a time - so the two
-   * directions are never both useful: back over his shoulder if something
-   * is chasing him, ahead at the birds otherwise. A third button would be
-   * one more thing to get wrong mid-run, and there is nothing behind the
-   * fox to hit when no dog is up. The arrow keys stay explicit either way.
+  /* Which way the one thumb button throws. Four buttons would be four
+   * more things to get wrong mid-run, and a five-year-old is not going to
+   * pick a direction under pressure - so there is still one button and it
+   * aims itself, at whatever is most likely to kill him: the dog ahead
+   * first (the one there is no jump away from), then the dog on his
+   * heels, then whatever is in the air. The arrow keys stay explicit.
    */
-  touchThrowForward() {
-    return !this.dogDirector.dogs.some(
-      (d) => d.state !== "sleeping" && d.state !== "stunned"
-    );
+  touchThrowDir() {
+    const fb = this.fox.getHitbox();
+    const dogs = this.dogDirector.dogs;
+    const live = (d) => d.state !== "stunned" && d.state !== "tiring";
+    // Down, on the ground or in the air: it rolls, and the dog is on the
+    // ground. A forward throw arcs up into the birds and sails over him.
+    if (dogs.some((d) => live(d) && d.x > fb.x + fb.w)) return "down";
+    if (dogs.some((d) => live(d) && d.state !== "sleeping")) return "back";
+    const bird = this.birds.find((b) => !b.falling && b.x + b.w > fb.x);
+    // Nearly overhead - a flat forward throw would pass under it.
+    if (bird && bird.x < fb.x + fb.w + 90) return "up";
+    return "forward";
   }
 
-  throwAcorn(forward) {
+  throwAcorn(dir) {
     if (this.acornCount <= 0 || this.throwCooldown > 0) return;
+    if (!THROW_DIRS[dir]) dir = "back";
     this.acornCount--;
-    this.throwCooldown = (forward ? THROW_FWD : THROW).cooldown;
-    this.fox.startThrow(forward);
+    this.throwCooldown = THROW_DIRS[dir].cooldown;
+    this.fox.startThrow(dir);
     sound.sfx("throw");
     // The projectile leaves on the release frame, not at the key press.
     this.pendingRelease = THROW_ANIM.releaseAt;
-    this.pendingForward = !!forward;
+    this.pendingDir = dir;
   }
 
   /* Goal reached: stop sending hazards, let the fox run on, then slide his
@@ -4129,10 +4200,11 @@ class Game {
       if (this.pendingRelease <= 0) {
         this.pendingRelease = null;
         const fb = this.fox.getHitbox();
-        // Forward throws leave from his front paw rather than behind him.
-        const fromX = this.pendingForward ? fb.x + fb.w : fb.x;
-        this.shots.push(new AcornShot(fromX, fb.y + fb.h * 0.35,
-          this.images.acorn, this.pendingForward));
+        // Each aim leaves him from a different place: behind, from the
+        // front paw, over his head, or from under him on the way down.
+        const from = THROW_DIRS[this.pendingDir].from;
+        this.shots.push(new AcornShot(fb.x + fb.w * from.x, fb.y + fb.h * from.y,
+          this.images.acorn, this.pendingDir));
       }
     }
 
@@ -4142,7 +4214,13 @@ class Game {
     this.acorns = this.acorns.filter((ac) => !ac.isOffscreen() && !ac.collected);
     for (const p of this.popups) { p.life -= dt; p.y -= 34 * dt; p.x -= this.speed * dt; }
     this.popups = this.popups.filter((p) => p.life > 0);
-    for (const shot of this.shots) shot.update(dt, this.groundY);
+    /* Acorns need the real surface under them, not a flat line: on a
+     * river level a rolling one runs off the lip of a crossing.
+     */
+    const shotSurface = THEME.river && this.river
+      ? (x) => this.river.surfaceAt(x)
+      : () => this.groundY;
+    for (const shot of this.shots) shot.update(dt, shotSurface);
     this.shots = this.shots.filter((s) => !s.dead);
     this.birdSpawner.update(
       dt, this.speed, this.score, this.birds,
@@ -4152,31 +4230,34 @@ class Game {
     for (const b of this.birds) b.update(dt, this.speed, foxFront);
     this.birds = this.birds.filter((b) => !b.isOffscreen());
 
-    /* Thrown acorns hit one thing each, and only the thing they were
-     * aimed at: back over the shoulder stops a dog, forward knocks a bird
-     * out of the sky. Neither touches an animal standing on the ground -
-     * those have to be jumped.
+    /* Thrown acorns hit one thing each: whichever dog or bird they
+     * actually meet. Aim used to decide the target - back could only stop
+     * a dog, forward could only drop a bird - but once he can throw in
+     * four directions that reads as the acorn passing straight through
+     * things, and the whole point of throwing down is to reach a dog
+     * ahead of him. What has not changed: an acorn never touches an
+     * animal standing on the ground. Those still have to be jumped.
      */
     for (const shot of this.shots) {
-      if (shot.forward) {
-        for (const b of this.birds) {
-          if (!b.falling && intersects(shot.getBox(), b.getHitbox())) {
-            shot.dead = true;
-            b.knockDown();
-            this.birdsDropped++;
-            this.awardBonus(SCORING.bird, b.x + b.w / 2, b.y);
-            sound.sfx("stun");
-            break;
-          }
-        }
-        continue;
-      }
+      const box = shot.getBox();
+      let spent = false;
       for (const d of this.dogDirector.dogs) {
-        if (d.state !== "stunned" && intersects(shot.getBox(), d.getShotBox())) {
-          shot.dead = true;
+        if (d.state !== "stunned" && intersects(box, d.getShotBox())) {
+          shot.dead = spent = true;
           d.stun();
           this.dogsStopped++;
           this.awardBonus(SCORING.dog, d.x + d.w / 2, d.y);
+          sound.sfx("stun");
+          break;
+        }
+      }
+      if (spent) continue;
+      for (const b of this.birds) {
+        if (!b.falling && intersects(box, b.getHitbox())) {
+          shot.dead = true;
+          b.knockDown();
+          this.birdsDropped++;
+          this.awardBonus(SCORING.bird, b.x + b.w / 2, b.y);
           sound.sfx("stun");
           break;
         }
@@ -4738,11 +4819,10 @@ class Game {
     const rows = [
       ["ENTER", "start / restart"],
       ["SPACE", "jump"],
-      ["LEFT", "acorn at the dog"],
-      ["RIGHT", "acorn at the birds"],
+      ["ARROWS", "throw an acorn that way"],
     ];
     const rowH = 32;
-    const panelW = 260;
+    const panelW = 310;
     const panelH = rows.length * rowH + 18;
     const px = GAME_W / 2 - panelW / 2;
     const py = 108;
