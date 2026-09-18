@@ -771,14 +771,32 @@ const THEMES = {
      * off until platform_high.png exists - the code for them is in, and
      * turning them on is one number.
      */
+    /* Wider water than the swamp, but LESS of it. Jungle is dense ground,
+     * not marsh: a crossing should be a river met now and then rather
+     * than the floor being half water.
+     */
     riverTuning: {
       narrow: 0.50, wide: 0.66,
-      gapMin: 1500, gapMax: 2800,
+      gapMin: 2600, gapMax: 4400,
       highStone: 0,
     },
+    /* Each band names the rows of its PNG that actually carry the
+     * scenery. A band is drawn at a fixed HEIGHT, so its tile is only as
+     * wide as its source aspect allows - hand it the whole canvas and a
+     * 1200px panorama is squeezed into 236px, which is what made the
+     * treeline look like wet string. Cropping to the band itself widens
+     * every tile by about half as much again.
+     */
     bands: [
-      { img: "hillsFar", h: 108, parallax: 0.08 },
-      { img: "treesMid", h: 118, parallax: 0.20, mirror: false },
+      { img: "hillsFar", h: 108, parallax: 0.08,
+        src: { srcY0: 110, srcY1: 430 } },
+      /* A shallow crop on purpose. The trees in this file are drawn very
+       * tall and very thin, so the shallower the slice the bigger the
+       * scale it is drawn at and the wider each trunk lands on screen -
+       * the whole canvas at this height turned them into wet string.
+       */
+      { img: "treesMid", h: 118, parallax: 0.20, mirror: false,
+        src: { srcY0: 250, srcY1: 470 } },
       /* The canopy hangs from the TOP of the screen rather than standing on
        * the horizon, so its offset carries it all the way up there: bands
        * are placed by their bottom edge against the ground line.
@@ -792,7 +810,7 @@ const THEMES = {
       fall: "flyer/monkey_fall.png",
     },
     files: {
-      obstacles: { hedgehog: "lizard.png", rock: "armadillo.png",
+      obstacles: { hedgehog: "reactions/lizard_1.png", rock: "armadillo.png",
                    sentry: "reactions/leopard_2.png", rabbit: "gorilla.png" },
       flyer: { fly: seq(6, (i) => `parrot_fly_${pad2(i + 1)}.png`),
                hit: "parrot_hit.png", fall: "parrot_fall.png" },
@@ -804,17 +822,35 @@ const THEMES = {
       },
     },
     reactions: {
+      hedgehog: ["lizard_2.png", "lizard_3.png", "lizard_4.png"],
       // Walking along, then tucked into a ball as he gets close.
       rock: ["armadillo_1.png"],
       // Last two are always the leap and the landing; the rest are the rise.
       sentry: ["leopard_3.png", "leopard_4.png", "leopard_5.png"],
     },
     sprites: {
-      // Flat and long. No rearing frames yet, so for now it is just in the way.
+      /* Flat and long, then up on its front legs with its frill wide open.
+       *
+       * The four frames are drawn at four different zooms, which would
+       * wreck a pounce - those share one scale across the set. Rearing
+       * does not: it sizes each pose to the height it has risen to and
+       * takes the aspect from the frame itself, so a set drawn at
+       * different sizes still reads as one animal standing up.
+       *
+       * flip: false everywhere below. The shared roles mirror themselves
+       * to face the oncoming fox because the FIELD's art faces right; the
+       * jungle's already faces left, so mirroring turned it around.
+       */
       hedgehog: {
-        h: 26, weight: 1.6, sink: 4,
-        trim: { sx: 66, sy: 233, sw: 446, sh: 108 },
+        h: 26, rearHeight: 44, weight: 1.6, sink: 4, flip: false,
+        rearNotice: 400, riseTime: 0.34,
+        trim: { sx: 16, sy: 229, sw: 480, sh: 112 },
         hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 16, sy: 152, sw: 480, sh: 189 } },  // up on its front legs
+          { trim: { sx: 16, sy: 78, sw: 480, sh: 263 } },  // frill opening
+          { trim: { sx: 39, sy: 41, sw: 434, sh: 300 } },   // frill wide, mouth open
+        ],
       },
       /* Ambling until he nears, then it curls up and ROLLS at him. The
        * curl is the tell and the ball is what has to be jumped; the ball
@@ -833,7 +869,7 @@ const THEMES = {
        * and earlier than the mountain's bear, the same job the ram does.
        */
       sentry: {
-        h: 34, availableFrom: 500, sink: 4, weight: 2,
+        h: 34, availableFrom: 500, sink: 4, weight: 2, flip: false,
         sheet: { sx: 0, sw: 512 }, floor: 296,
         rearNotice: 430, riseTime: 0.38,
         lungeBy: 26, lungeAt: 165, lungeTime: 0.22,
@@ -849,6 +885,7 @@ const THEMES = {
       // frames are still to be drawn, so for now it simply stands there.
       rabbit: {
         h: 46, availableFrom: 1100, weight: 2.2, sink: 4, animal: true,
+        flip: false,
         trim: { sx: 49, sy: 31, sw: 413, sh: 310 },
         hitbox: { left: 0.16, right: 0.16, top: 0.10, bottom: 0.02 },
       },
