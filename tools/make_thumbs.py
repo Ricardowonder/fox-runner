@@ -53,6 +53,16 @@ THEMES = {
         "under": "#161f21",
         "cast": ["obstacles/skunk.png", "obstacles/marmot.png"],
     },
+    "jungle": {
+        "sky": "scenery/sky.png",
+        "bands": [("scenery/hills_far.png", 108, None),
+                  ("scenery/trees_mid.png", 96, None)],
+        "decor": ["scenery/trees/tree_02.png", "scenery/bush_strip.png"],
+        "ground": ("ground/ground_jungle.png", 288, 428, 40, 0.171),
+        "dirt": ("ground/ground_jungle.png", 410, 720, 44),
+        "under": "#2e2113",
+        "cast": ["obstacles/lizard.png", "obstacles/gorilla.png"],
+    },
     "swamp": {
         "sky": "scenery/sky.png",
         "bands": [("scenery/hills_far.png", 115, None),

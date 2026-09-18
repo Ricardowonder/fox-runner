@@ -18,6 +18,13 @@ TRIM = re.compile(r"trim: \{ sx: (\d+), sy: (\d+), sw: (\d+), sh: (\d+) \}")
 
 
 def bbox(path):
+    """Plain getbbox: a strict fingerprint of the file as it stands.
+
+    Deliberately NOT the speck-tolerant measurement in measure_sprites.py.
+    That one exists to bake a sensible crop out of dirty art; this one
+    exists to notice that the art changed at all, and it should notice a
+    single pixel. Art is cleaned (tools/despeckle.py) so the two agree.
+    """
     b = Image.open(path).convert("RGBA").getbbox()
     return None if b is None else (b[0], b[1], b[2] - b[0], b[3] - b[1])
 
@@ -58,7 +65,7 @@ def obstacle_file(theme, role):
 
 
 problems, checked = [], 0
-for theme in ("field", "woodland", "mountain"):
+for theme in ("field", "woodland", "mountain", "swamp", "jungle"):
     base = ROOT / "assets" / "themes" / theme
     for role, poses in theme_reactions(theme).items():
         trims = sprite_trims(theme, role)
@@ -67,7 +74,11 @@ for theme in ("field", "woodland", "mountain"):
         # trims[0] is the resting sprite; the rest line up with the poses
         files = []
         own = obstacle_file(theme, role)
-        files.append(base / "obstacles" / own if own else None)
+        # A resting sprite may be one of the reaction frames rather than a
+        # file of its own - the swamp's frog rests in its last pose - and
+        # then the name carries its own folder.
+        files.append(None if not own else
+                     base / (own if "/" in own else "obstacles/" + own))
         for p in poses:
             files.append(base / (p if "/" in p else "reactions/" + p))
         for want, f in zip(trims, files):

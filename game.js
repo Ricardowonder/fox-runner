@@ -172,6 +172,7 @@ function makeTheme(dir, label, opts) {
       // simply never names it in `bands`, so it is never requested.
       clouds: `assets/themes/${dir}/scenery/clouds.png`,
       treesMid: `assets/themes/${dir}/scenery/trees_mid.png`,
+      canopy: `assets/themes/${dir}/scenery/canopy_top.png`,
       trees: qList("scenery", "trees", seq(3, (i) => `tree_${pad2(i + 1)}.png`)),
       bushes: qList("scenery", "bushes",
         ["bush_strip.png", "bush_01.png", "bush_02.png", "bush_03.png"]),
@@ -179,10 +180,15 @@ function makeTheme(dir, label, opts) {
     ground: { grass: q("ground", "grass", "grass.png"),
               dirt: q("ground", "dirt", "dirt.png") },
     // Water, bank ends and stepping stones, for a setting with a river.
+    /* A river theme may name its own files; `files.ground` is for the two
+     * bands of the bank, so the water and its furniture say so here. These
+     * have no fallback - the field has no river - so a wrong name is a
+     * failed load and a level that will not open.
+     */
     riverArt: opts.riverArt ? Object.assign({}, opts.riverArt, {
-      waterSrc: p("ground", "water.png"),
-      platformSrc: p("ground", "platform.png"),
-      edgeSrc: p("ground", "bank_edge.png"),
+      waterSrc: p("ground", opts.riverArt.waterFile || "water.png"),
+      platformSrc: p("ground", opts.riverArt.platformFile || "platform.png"),
+      edgeSrc: p("ground", opts.riverArt.edgeFile || "bank_edge.png"),
     }) : null,
     pages: { intro: p("pages", "intro.png"), gameOver: p("pages", "game_over.png") },
     // The burrow the fox dives into to finish a level.
@@ -219,6 +225,8 @@ function makeTheme(dir, label, opts) {
     // river asks for this; everywhere else the ground is one strip and
     // none of the crossing code runs at all.
     river: !!opts.river,
+    // Per-level overrides of the RIVER numbers; see bindRiver().
+    riverTuning: opts.riverTuning || null,
   };
 }
 
@@ -719,6 +727,152 @@ const THEMES = {
              -12, null, -5, null, -12, -10, -8, -5],
     },
   }),
+
+  /* The jungle. Two things here are its own rather than borrowed: monkeys
+   * swinging from the canopy, which are pinned to a spot rather than
+   * chasing him, and a river tuned wider than the swamp's.
+   *
+   * Half-dressed for now. The three static obstacles, the lizard's rearing
+   * frames and the tall pillar are all waiting on artwork, so the log, the
+   * stump and the boulder fall through to the field's and the lizard just
+   * sits there. Everything named here is real.
+   */
+  jungle: makeTheme("jungle", "Jungle", {
+    fallback: "field",
+    /* The three static obstacles are named here rather than left to be
+     * guessed at: without it each one asks the jungle first, takes a 404
+     * and only then falls back, which is three wasted round-trips on every
+     * load. They are the field's until the jungle's own are drawn.
+     */
+    inherits: ["chaser", "collectible", "pages", "foxhole",
+               "obstacles.log", "obstacles.stump", "obstacles.boulder"],
+    river: true,
+    /* One tile cropped twice, as the mountain and swamp do. The walkable
+     * surface is source row 312 of 768 - the row where the grass tufts
+     * stop and the floor goes solid - which is what surfaceFrac puts on
+     * the ground line.
+     */
+    groundCrops: {
+      grass: { srcY0: 288, srcY1: 428, drawH: 40, surfaceFrac: 0.171 },
+      dirt: { srcY0: 410, srcY1: 720, drawH: 44, overlap: 10 },
+      underfill: "#2e2113",
+    },
+    riverArt: {
+      water: { srcY0: 0, srcY1: 512 },
+      // `top` is the source row of the flat mossy surface and x0/x1 its
+      // span, so the stone is placed by what he can land on rather than by
+      // the roots underneath, which spread wider.
+      platform: { trim: { sx: 51, sy: 84, sw: 414, sh: 179 },
+                  top: 105, x0: 109, x1: 423 },
+      edge: { trim: { sx: 0, sy: 16, sw: 508, sh: 752 }, surface: 26 },
+      platformFile: "platform_low.png",
+    },
+    /* Wider water than the swamp, and more of it. The pillar crossings are
+     * off until platform_high.png exists - the code for them is in, and
+     * turning them on is one number.
+     */
+    riverTuning: {
+      narrow: 0.50, wide: 0.66,
+      gapMin: 1500, gapMax: 2800,
+      highStone: 0,
+    },
+    bands: [
+      { img: "hillsFar", h: 108, parallax: 0.08 },
+      { img: "treesMid", h: 118, parallax: 0.20, mirror: false },
+      /* The canopy hangs from the TOP of the screen rather than standing on
+       * the horizon, so its offset carries it all the way up there: bands
+       * are placed by their bottom edge against the ground line.
+       */
+      { img: "canopy", h: 86, parallax: 0.13, offset: 86 - 254 },
+    ],
+    swinger: {
+      swing: ["flyer/monkey_swing_01.png", "flyer/monkey_swing_02.png",
+              "flyer/monkey_swing_03.png"],
+      hit: "flyer/monkey_hit.png",
+      fall: "flyer/monkey_fall.png",
+    },
+    files: {
+      obstacles: { hedgehog: "lizard.png", rock: "armadillo.png",
+                   sentry: "reactions/leopard_2.png", rabbit: "gorilla.png" },
+      flyer: { fly: seq(6, (i) => `parrot_fly_${pad2(i + 1)}.png`),
+               hit: "parrot_hit.png", fall: "parrot_fall.png" },
+      ground: { grass: "ground_jungle.png", dirt: "ground_jungle.png" },
+      scenery: {
+        trees: ["trees/tree_01.png", "trees/tree_02.png", "trees/tree_03.png"],
+        // Its own undergrowth strip; the three single bushes come from the field.
+        bushes: ["bush_strip.png", null, null, null],
+      },
+    },
+    reactions: {
+      // Walking along, then tucked into a ball as he gets close.
+      rock: ["armadillo_1.png"],
+      // Last two are always the leap and the landing; the rest are the rise.
+      sentry: ["leopard_3.png", "leopard_4.png", "leopard_5.png"],
+    },
+    sprites: {
+      // Flat and long. No rearing frames yet, so for now it is just in the way.
+      hedgehog: {
+        h: 26, weight: 1.6, sink: 4,
+        trim: { sx: 66, sy: 233, sw: 446, sh: 108 },
+        hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
+      },
+      /* Ambling until he nears, then curled up tight - which is taller than
+       * the walk, so the ball is what has to be cleared.
+       */
+      rock: {
+        h: 26, rearHeight: 32, weight: 1.9, availableFrom: 250,
+        animal: true, sink: 4, rearNotice: 400,
+        trim: { sx: 16, sy: 78, sw: 480, sh: 263 },
+        hitbox: { left: 0.12, right: 0.12, top: 0.12, bottom: 0.02 },
+        poses: [{ trim: { sx: 84, sy: 41, sw: 344, sh: 300 } }],
+      },
+      /* Lying in the leaf litter, up onto its legs, then a pounce. Smaller
+       * and earlier than the mountain's bear, the same job the ram does.
+       */
+      sentry: {
+        h: 34, availableFrom: 500, sink: 4, weight: 2,
+        sheet: { sx: 0, sw: 512 }, floor: 296,
+        rearNotice: 430, riseTime: 0.38,
+        lungeBy: 26, lungeAt: 165, lungeTime: 0.22,
+        trim: { sx: 68, sy: 114, sw: 444, sh: 180 },
+        hitbox: { left: 0.14, right: 0.18, top: 0.12, bottom: 0.02 },
+        poses: [
+          { trim: { sx: 0, sy: 24, sw: 512, sh: 272 } },   // up on all fours
+          { trim: { sx: 0, sy: 35, sw: 512, sh: 196 } },   // pouncing, airborne
+          { trim: { sx: 0, sy: 30, sw: 491, sh: 266 } },   // landed
+        ],
+      },
+      // The biggest thing on the level, and the latest to appear. Its charge
+      // frames are still to be drawn, so for now it simply stands there.
+      rabbit: {
+        h: 46, availableFrom: 1100, weight: 2.2, sink: 4, animal: true,
+        trim: { sx: 49, sy: 31, sw: 413, sh: 310 },
+        hitbox: { left: 0.16, right: 0.16, top: 0.10, bottom: 0.02 },
+      },
+      // A macaw: broader than the bluebird and a touch higher.
+      flyer: { w: 62, h: 46, altMin: 110, altMax: 150,
+               trim: { sx: 19, sy: 14, sw: 493, sh: 327 },
+               hitTrim: { sx: 119, sy: 0, sw: 393, sh: 341 },
+               fallTrim: { sx: 0, sy: 0, sw: 498, sh: 341 } },
+    },
+    cast: { hedgehog: "lizard", rock: "armadillo", sentry: "leopard",
+            rabbit: "gorilla", log: "log", stump: "stump", boulder: "boulder",
+            chaser: "hunting dog", flyer: "parrot", collectible: "acorn" },
+    dog: { availableFrom: 400, gapScale: 1.0 },
+    /* Marimba and skin drums. D minor pentatonic, and syncopated rather
+     * than square: the lead lands off the beat through the first half and
+     * only settles on it at the end of the bar, which is what keeps it
+     * moving under a level that already has a lot going on. The bass walks
+     * the root and fifth in a loping two-feel.
+     */
+    music: {
+      root: 62, // D4
+      lead: [0, null, 3, 5, null, 7, 5, 3,
+             10, null, 7, 5, 3, null, 0, null],
+      bass: [-12, null, null, -5, -12, null, -5, null,
+             -10, null, null, -3, -12, null, -5, -5],
+    },
+  }),
 };
 
 /* The levels, in order. Each finishes at its goal score, then the fox
@@ -729,6 +883,7 @@ const LEVELS = [
   { theme: "woodland", goal: 3000 },
   { theme: "mountain", goal: 3000 },
   { theme: "swamp", goal: 3000 },
+  { theme: "jungle", goal: 3000 },
 ];
 let levelIndex = 0;
 let THEME = THEMES[LEVELS[levelIndex].theme];
@@ -3866,7 +4021,7 @@ const DECOR_STRIPS = [
  */
 // Parallax art that only some settings have. Requested for a theme only
 // when its own `bands` name it: the field has no clouds and no treeline.
-const OPTIONAL_BAND_IMAGES = ["clouds", "treesMid"];
+const OPTIONAL_BAND_IMAGES = ["clouds", "treesMid", "canopy"];
 
 const BG_BANDS = [
   { img: "hillsFar", h: 115, parallax: 0.1 },
