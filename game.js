@@ -897,6 +897,20 @@ const RIVER = {
   gapMax: 3200,
   stonesFrom: 350,     // score at which the two-hop crossings start
   stoneChance: 0.6,    // ...and how often a crossing is one of them
+  /* A tall pillar instead of a stepping stone. It sits above what a tap
+   * can reach, so getting onto one means HOLDING the jump - the first
+   * thing in the game that asks for the tall jump rather than merely
+   * allowing it. Off by default: the swamp predates the variable jump and
+   * should stay as it was.
+   */
+  highStone: 0,          // share of stone crossings that use the pillar
+  highStoneHeight: 118,  // px above the bank (a tap reaches 85, a hold 170)
+  /* Shorter halves than a flat stone. He has to be 118px up when he gets
+   * there rather than 55, so the useful part of the arc is narrower even
+   * though a held jump carries further - measured, not guessed.
+   */
+  highStoneHop: 0.50,
+  highStoneFrom: 900,    // score before the first one
   fallKills: 40,       // px below the bank before the run is over
   waterTop: 10,        // where the waterline sits below the bank surface
 };
@@ -1511,6 +1525,7 @@ const MISSING_ART = new Set();
  */
 function bindTheme() {
   applyThemeSprites();
+  bindRiver();
   IMAGE_SOURCES = {
     sky: THEME.scenery.sky,
     hillsFar: THEME.scenery.hillsFar,
@@ -2169,7 +2184,7 @@ class Fox {
 
   // True once he is past saving: in the water, below the bank.
   hasFallenIn() {
-    return !this.onGround && this.y > this.groundY + RIVER.fallKills;
+    return !this.onGround && this.y > this.groundY + RIVER_CFG.fallKills;
   }
 
   jump(speed) {
@@ -3039,6 +3054,15 @@ class Crossing {
   }
 }
 
+/* The river numbers in force, with the current theme's overrides folded
+ * in. A level that says nothing gets RIVER exactly as written, so adding
+ * this changed nothing about the swamp.
+ */
+let RIVER_CFG = RIVER;
+function bindRiver() {
+  RIVER_CFG = THEME.riverTuning ? { ...RIVER, ...THEME.riverTuning } : RIVER;
+}
+
 /* The river: where the bank is, where it is not, and what the fox can
  * stand on. Only built for a theme that asks for one, so the first three
  * levels never have a crossing and never pay for the check.
@@ -3051,7 +3075,7 @@ class River {
 
   reset() {
     this.crossings = [];
-    this.distanceUntilNext = RIVER.gapMin;
+    this.distanceUntilNext = RIVER_CFG.gapMin;
   }
 
   /* The top of whatever is beneath this x - the bank, a stepping stone,
@@ -3105,30 +3129,38 @@ class River {
     this.distanceUntilNext -= speed * dt;
     if (this.distanceUntilNext > 0) return;
 
+    const R = RIVER_CFG;
     const max = maxClearableGap(speed, foxHitboxW);
-    const spawnX = GAME_W + RIVER.minRunUp;
+    const spawnX = GAME_W + R.minRunUp;
     /* Wait for a clear run-up. Obstacles enter nearer the edge of the
      * screen than crossings do, so one already in flight would sit only a
      * couple of hundred px in front of the near lip - land from a jump and
      * be over water before the next stride.
      */
-    if (obstacles && obstacles.some((o) => o.x + o.w > spawnX - RIVER.minRunUp)) return;
+    if (obstacles && obstacles.some((o) => o.x + o.w > spawnX - R.minRunUp)) return;
     let crossing;
-    if (score >= RIVER.stonesFrom && Math.random() < RIVER.stoneChance) {
+    if (score >= R.stonesFrom && Math.random() < R.stoneChance) {
       /* Two hops with a stone in the middle. Each half is half the jump he
        * has, so neither is near the limit - but together with the stone
        * they are far beyond one jump, which is the whole point of it.
+       *
+       * Some of them are a tall pillar rather than a stone. The step up is
+       * above what a tap reaches, so the first hop has to be HELD - and a
+       * held jump hangs longer, which is what pays for the extra height.
        */
-      const hop = max * RIVER.stoneHop;
-      const stoneW = max * RIVER.stoneWidth;
+      const high = R.highStone > 0 && score >= R.highStoneFrom &&
+                   Math.random() < R.highStone;
+      const hop = max * (high ? R.highStoneHop : R.stoneHop);
+      const stoneW = max * R.stoneWidth;
       const w = hop * 2 + stoneW;
       crossing = new Crossing(spawnX, w, [{
         x: spawnX + hop,
         w: stoneW,
-        top: this.groundY - RIVER.stoneHeight,
+        top: this.groundY - (high ? R.highStoneHeight : R.stoneHeight),
+        high,
       }]);
     } else {
-      const share = score >= RIVER.stonesFrom ? RIVER.wide : RIVER.narrow;
+      const share = score >= R.stonesFrom ? R.wide : R.narrow;
       crossing = new Crossing(spawnX, max * share, []);
     }
     this.crossings.push(crossing);
@@ -3141,11 +3173,11 @@ class River {
      * right than an obstacle does - without it the next obstacle spawns
      * straight into the far half of the hole.
      */
-    const reserved = RIVER.minRunUp + crossing.w + RIVER.minLanding;
+    const reserved = R.minRunUp + crossing.w + R.minLanding;
     spawner.distanceUntilNext = Math.max(spawner.distanceUntilNext, reserved);
     acornSpawner.distanceUntilNext = Math.max(acornSpawner.distanceUntilNext, reserved);
     this.distanceUntilNext = crossing.w
-      + RIVER.gapMin + Math.random() * (RIVER.gapMax - RIVER.gapMin);
+      + R.gapMin + Math.random() * (R.gapMax - R.gapMin);
   }
 }
 
@@ -4568,7 +4600,7 @@ class Game {
   drawWater(dirtTop) {
     const { ctx, images } = this;
     const art = THEME.riverArt;
-    const top = this.groundY + RIVER.waterTop;
+    const top = this.groundY + RIVER_CFG.waterTop;
     for (const c of this.river.crossings) {
       ctx.save();
       ctx.beginPath();
