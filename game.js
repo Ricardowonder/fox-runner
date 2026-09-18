@@ -816,12 +816,15 @@ const THEMES = {
         trim: { sx: 66, sy: 233, sw: 446, sh: 108 },
         hitbox: { left: 0.10, right: 0.10, top: 0.12, bottom: 0.02 },
       },
-      /* Ambling until he nears, then curled up tight - which is taller than
-       * the walk, so the ball is what has to be cleared.
+      /* Ambling until he nears, then it curls up and ROLLS at him. The
+       * curl is the tell and the ball is what has to be jumped; the ball
+       * is taller than the walk, so `rearHeight` is what the spawner
+       * reserves room for.
        */
       rock: {
         h: 26, rearHeight: 32, weight: 1.9, availableFrom: 250,
-        animal: true, sink: 4, rearNotice: 400,
+        animal: true, sink: 4,
+        roll: { notice: 430, curlTime: 0.26, speed: 150, radius: 16 },
         trim: { sx: 16, sy: 78, sw: 480, sh: 263 },
         hitbox: { left: 0.12, right: 0.12, top: 0.12, bottom: 0.02 },
         poses: [{ trim: { sx: 84, sy: 41, sw: 344, sh: 300 } }],
@@ -2642,11 +2645,88 @@ class Obstacle {
     this.baseH = this.h;
   }
 
-  update(dt, speed, fox, images) {
+  update(dt, speed, fox, images, world) {
     this.x -= speed * dt;
-    if (this.type.lungeBy && fox) this.updatePounce(dt, speed, fox, images);
+    if (this.type.roll && fox) this.updateRoll(dt, speed, fox, images, world);
+    else if (this.type.lungeBy && fox) this.updatePounce(dt, speed, fox, images);
     else if (this.type.rearHeight && fox) this.updateRear(dt, fox, images);
     else if (this.type.hide && fox) this.updateHide(dt, fox, images);
+  }
+
+  /* Curls up and ROLLS at him. The only obstacle that closes on the fox
+   * under its own steam: everything else either waits to be jumped or
+   * lunges a few pixels. Three phases - standing, curling, rolling - and
+   * the curl is the tell, so the roll is never the first you know of it.
+   *
+   * Two things have to be true before it will go, and both are about not
+   * manufacturing a death the player could not have avoided:
+   *
+   *  - nothing else between it and the fox. A ball rolling into a standing
+   *    obstacle makes a two-high wall out of two things that were each
+   *    jumpable on their own.
+   *  - solid ground the whole way. Rolling into a crossing would put it
+   *    over the water exactly where he is committed to a jump.
+   *
+   * Once it is rolling it keeps going, past him and off the left edge. If
+   * it does reach a lip after all - the river can open one behind it - it
+   * drops in, and stops being able to hit anything on the way down.
+   */
+  // A rolling ball is drawn spinning about its middle; everything else
+  // draws flat, so this is the one obstacle that needs a transform.
+  rollTransform(ctx) {
+    if (!this.spin) return false;
+    ctx.save();
+    ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+    ctx.rotate(-this.spin);            // rolling leftward turns anticlockwise
+    ctx.translate(-(this.x + this.w / 2), -(this.y + this.h / 2));
+    return true;
+  }
+
+  updateRoll(dt, speed, fox, images, world) {
+    const r = this.type.roll;
+    const fb = fox.getHitbox();
+    const nose = fb.x + fb.w;
+    if (this.rollPhase === undefined) { this.rollPhase = "standing"; this.curl = 0; this.spin = 0; }
+
+    if (this.rollPhase === "standing") {
+      const gap = this.x - nose;
+      const clear = !world || !world.obstacles ||
+        !world.obstacles.some((o) => o !== this && o.x > nose && o.x < this.x);
+      const solid = !world || !world.river ||
+        world.river.spanIsSolid(nose, this.x + this.w);
+      if (gap < r.notice && gap > 0 && clear && solid) this.rollPhase = "curling";
+    }
+    if (this.rollPhase === "curling") {
+      this.curl = Math.min(1, this.curl + dt / r.curlTime);
+      if (this.curl >= 1) this.rollPhase = "rolling";
+    }
+    if (this.rollPhase === "rolling" && !this.sinking) {
+      const d = r.speed * dt;
+      this.x -= d;                       // on top of the world already scrolling
+      this.spin += d / r.radius;         // a ball turns as far as it travels
+      if (world && world.river && world.river.surfaceAt(this.x + this.w / 2) === null) {
+        this.sinking = true;             // rolled off a lip
+      }
+    }
+    if (this.sinking) {
+      this.fallVy = (this.fallVy || 0) + 900 * dt;
+      this.y += this.fallVy * dt;
+    }
+
+    // Ball once it is curled; the standing sprite until then.
+    const poses = this.type.hide;
+    if (poses && poses.length) {
+      const balled = this.rollPhase !== "standing";
+      this.hideLevel = balled ? poses.length : 0;
+      this.hideImage = balled ? images[poses[poses.length - 1].key] : null;
+      if (balled) {
+        const groundLine = this.groundY + (this.type.sink || 0);
+        const t = poses[poses.length - 1].trim;
+        this.h = this.type.rearHeight || this.baseH;
+        this.w = this.h * (t.sw / t.sh);
+        if (!this.sinking) this.y = groundLine - this.h;
+      }
+    }
   }
 
   /* Where one frame of a pounce sequence sits, in world pixels.
@@ -2829,6 +2909,10 @@ class Obstacle {
         // Rearing types already grew this.h; draw the pose at full height.
         h = this.h;
         w = h * (t.sw / t.sh);
+      } else if (this.type.roll) {
+        // updateRoll already sized the ball; keep it.
+        w = this.w;
+        h = this.h;
       } else if (this.type.poseFit === "scale") {
         /* One constant scale across every pose. An animal that stands up
          * and turns - the skunk, before it sprays - is a NARROWER shape,
@@ -2850,6 +2934,7 @@ class Obstacle {
     }
     const dx = this.x + (this.w - w) / 2;
     const dy = this.y + this.h - h;
+    const spun = this.rollTransform(ctx);
     if (this.type.flip) {
       ctx.save();
       ctx.translate(dx + w, dy);
@@ -2859,6 +2944,7 @@ class Obstacle {
     } else {
       ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, dx, dy, w, h);
     }
+    if (spun) ctx.restore();
   }
 }
 
@@ -4764,7 +4850,8 @@ class Game {
       }
     }
 
-    for (const ob of this.obstacles) ob.update(dt, this.speed, this.fox, this.images);
+    const world = { obstacles: this.obstacles, river: THEME.river ? this.river : null };
+    for (const ob of this.obstacles) ob.update(dt, this.speed, this.fox, this.images, world);
     this.obstacles = this.obstacles.filter((ob) => !ob.isOffscreen());
     for (const ac of this.acorns) ac.update(dt, this.speed);
     this.acorns = this.acorns.filter((ac) => !ac.isOffscreen() && !ac.collected);
@@ -4842,7 +4929,7 @@ class Game {
     // Collision check is separate from obstacle behaviour on purpose.
     const foxBox = this.fox.getHitbox();
     for (const ob of this.obstacles) {
-      if (intersects(foxBox, ob.getHitbox())) {
+      if (!ob.sinking && intersects(foxBox, ob.getHitbox())) {
         this.endRun();
         break;
       }
