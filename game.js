@@ -206,6 +206,15 @@ function makeTheme(dir, label, opts) {
      * means re-running that rather than commissioning anything.
      */
     thumb: `assets/themes/${dir}/thumb.jpg`,
+    /* Optional: a level with monkeys in the canopy names them here, with
+     * paths relative to its own folder. A theme that says nothing has no
+     * swingers and the spawner never runs.
+     */
+    swinger: opts.swinger ? {
+      swing: opts.swinger.swing.map((n) => `assets/themes/${dir}/${n}`),
+      hit: `assets/themes/${dir}/${opts.swinger.hit}`,
+      fall: `assets/themes/${dir}/${opts.swinger.fall}`,
+    } : null,
     // Settings with gaps in the bank the fox can fall through. Only the
     // river asks for this; everywhere else the ground is one strip and
     // none of the crossing code runs at all.
@@ -1444,6 +1453,51 @@ function birdFloor() {
   return foxTop + BIRD.clearance + BIRD.bobAmp + halfBird - inset;
 }
 
+/* A monkey on a vine, tied to the canopy. Unlike the bird, which comes at
+ * the fox, a swinger is pinned to a PLACE in the world and scrolls in with
+ * the ground - so it is a spot to time your run through rather than
+ * something chasing you. Same promise as the bird, though: it can never
+ * reach a fox with his feet on the ground. See swingerFloor().
+ *
+ * The sprite hangs from `grip`, a point given as a fraction of its own
+ * canvas, and the whole thing rotates about that point. The vine is drawn
+ * rather than painted into the art, so it stretches with the arc.
+ */
+const SWINGER = {
+  frameCount: 3,
+  swingFps: 7,
+  w: 46, h: 58,
+  grip: { x: 0.5, y: 0.02 },   // where the vine meets him, within his art
+  anchorY: 34,                 // the branch, tucked under the canopy band
+  amplitude: 0.85,             // radians either side of hanging straight down
+  period: 2.1,                 // seconds for one there-and-back
+  clearance: 16,               // px his hitbox keeps above a standing fox
+  availableFrom: 700,
+  gapMin: 2600,                // px of travel between monkeys
+  gapMax: 4800,
+  corridorBehind: 420,         // keep the spot clear of other hazards
+  corridorAhead: 260,
+  fallGravity: 900,
+  hitHold: 0.18,
+  vineWidth: 3,
+  vineColor: "#4f7a2e",
+  trim: { sx: 0, sy: 0, sw: 341, sh: 480 },
+  hitTrim: { sx: 0, sy: 0, sw: 300, sh: 420 },
+  fallTrim: { sx: 0, sy: 0, sw: 300, sh: 420 },
+  hitbox: { left: 0.16, right: 0.16, top: 0.10, bottom: 0.12 },
+};
+
+/* The longest vine that still keeps him off a standing fox, at the bottom
+ * of his arc. Derived rather than tuned, the same way birdFloor is: the
+ * numbers above can move and the promise holds.
+ */
+function swingerVine() {
+  const foxTop = FOX_H * (1 - FOX_HITBOX.top);          // his head, above ground
+  const lowest = GROUND_Y - foxTop - SWINGER.clearance; // deepest the box may reach
+  const boxBottom = SWINGER.h * (1 - SWINGER.hitbox.bottom);
+  return Math.max(20, lowest - SWINGER.anchorY - boxBottom);
+}
+
 const HISCORE_KEY = "foxRunnerHiScore";
 
 // ---------------------------------------------------------------------------
@@ -1668,6 +1722,11 @@ function themeImageEntries(theme) {
   theme.flyer.fly.forEach(push);
   push(theme.flyer.hit);
   push(theme.flyer.fall);
+  if (theme.swinger) {
+    theme.swinger.swing.forEach(push);
+    push(theme.swinger.hit);
+    push(theme.swinger.fall);
+  }
   push(theme.collectible.item);
   push(theme.collectible.icon);
   push(theme.scenery.sky);
@@ -1755,6 +1814,14 @@ function loadAssets() {
   THEME.chaser.run.forEach((src, i) => {
     jobs.push(loadImage(src).then((img) => (images.dogRun[i] = img)));
   });
+  images.monkeySwing = [];
+  if (THEME.swinger) {
+    THEME.swinger.swing.forEach((src, i) => {
+      jobs.push(loadImage(src).then((img) => (images.monkeySwing[i] = img)));
+    });
+    jobs.push(loadImage(THEME.swinger.hit).then((img) => (images.monkeyHit = img)));
+    jobs.push(loadImage(THEME.swinger.fall).then((img) => (images.monkeyFall = img)));
+  }
   images.dogJump = [];
   THEME.chaser.jump.forEach((src, i) => {
     jobs.push(loadImage(src).then((img) => (images.dogJump[i] = img)));
@@ -3284,6 +3351,160 @@ class Bird {
   }
 }
 
+/* A monkey swinging from a vine tied to the canopy.
+ *
+ * Its anchor is a point in the world, so it scrolls in with the ground
+ * and stays where it was put - the player sees it coming and times the
+ * run through it. The monkey hangs `vine` px below the branch and sweeps
+ * a pendulum arc; the sprite rotates about its grip so the vine and the
+ * body stay joined however far over it goes.
+ */
+class Swinger {
+  constructor(anchorX, frames) {
+    this.frames = frames;
+    this.anchorX = anchorX;
+    this.anchorY = SWINGER.anchorY;
+    this.vine = swingerVine();
+    this.w = SWINGER.w;
+    this.h = SWINGER.h;
+    this.age = 0;
+    // Start anywhere in the cycle, so a run does not meet the same swing
+    // at the same point every time.
+    this.phase = Math.random() * Math.PI * 2;
+    this.falling = false;
+    this.fallVy = 0;
+    this.tumble = 0;
+    this.hitTime = 0;
+    this.angle = 0;
+    this.place();
+  }
+
+  // Where the grip sits right now, and the body hanging off it.
+  place() {
+    this.gripX = this.anchorX + Math.sin(this.angle) * this.vine;
+    this.gripY = this.anchorY + Math.cos(this.angle) * this.vine;
+    this.x = this.gripX - this.w * SWINGER.grip.x;
+    this.y = this.gripY - this.h * SWINGER.grip.y;
+  }
+
+  // An acorn connected: he lets go and drops.
+  knockDown() {
+    if (this.falling) return;
+    this.falling = true;
+    this.fallVy = -40;
+    this.hitTime = 0;
+    this.tumble = 0;
+  }
+
+  update(dt, speed) {
+    this.age += dt;
+    this.anchorX -= speed * dt;          // the branch scrolls with the world
+    if (this.falling) {
+      this.fallVy += SWINGER.fallGravity * dt;
+      this.y += this.fallVy * dt;
+      this.x -= speed * dt;
+      this.hitTime += dt;
+      this.tumble += 2.2 * dt;
+      return;
+    }
+    this.angle = Math.sin(this.age * (Math.PI * 2) / SWINGER.period + this.phase)
+      * SWINGER.amplitude;
+    this.place();
+  }
+
+  isOffscreen() {
+    return this.x + this.w < -40 || this.y > GAME_H + 60;
+  }
+
+  getHitbox() {
+    return shrinkBox(this.x, this.y, this.w, this.h, SWINGER.hitbox);
+  }
+
+  draw(ctx, images) {
+    const frames = this.frames || [];
+    let img = frames[Math.floor(this.age * SWINGER.swingFps) % Math.max(1, frames.length)];
+    let t = SWINGER.trim;
+    let w = this.w, h = this.h;
+    if (this.falling) {
+      const struck = this.hitTime < SWINGER.hitHold;
+      const alt = images && (struck ? images.monkeyHit : images.monkeyFall);
+      const altTrim = struck ? SWINGER.hitTrim : SWINGER.fallTrim;
+      if (alt) {
+        // Same pixel scale as the swing frames, so he does not change size
+        // the instant he is hit.
+        img = alt; t = altTrim;
+        const px = this.h / SWINGER.trim.sh;
+        w = t.sw * px; h = t.sh * px;
+      }
+    } else {
+      // The vine, drawn rather than painted into the art so it can stretch.
+      ctx.save();
+      ctx.strokeStyle = SWINGER.vineColor;
+      ctx.lineWidth = SWINGER.vineWidth;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(this.anchorX, this.anchorY);
+      ctx.lineTo(this.gripX, this.gripY);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (!img) return;
+    ctx.save();
+    if (this.falling) {
+      ctx.translate(this.x + w / 2, this.y + h / 2);
+      ctx.rotate(this.tumble);
+      ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, -w / 2, -h / 2, w, h);
+    } else {
+      // Hang the body off the grip and let the whole thing swing with it.
+      ctx.translate(this.gripX, this.gripY);
+      ctx.rotate(this.angle);
+      ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh,
+        -w * SWINGER.grip.x, -h * SWINGER.grip.y, w, h);
+    }
+    ctx.restore();
+  }
+}
+
+/* Hangs a monkey in the canopy now and then, in clear air only. Same rule
+ * as the birds: never during a chase, and never over a spot where a jump
+ * is already being forced.
+ */
+class SwingerSpawner {
+  constructor() { this.reset(); }
+
+  reset() { this.distanceUntilNext = SWINGER.gapMin; }
+
+  update(dt, speed, score, swingers, obstacles, dogs, acorns, spawner, river, frames) {
+    if (!frames || !frames.length) return;   // a level with no monkeys
+    if (score < SWINGER.availableFrom) return;
+    this.distanceUntilNext -= speed * dt;
+    if (this.distanceUntilNext > 0) return;
+    if (dogs.some((d) => d.state !== "sleeping" && d.state !== "stunned")) {
+      this.distanceUntilNext = 200;
+      return;
+    }
+    const spawnX = GAME_W + 60;
+    const near = (x, w) =>
+      x + w > spawnX - SWINGER.corridorBehind && x < spawnX + SWINGER.corridorAhead;
+    if (
+      spawner.distanceUntilNext < 260 ||
+      obstacles.some((o) => near(o.x, o.w)) ||
+      acorns.some((a) => near(a.x, a.w)) ||
+      swingers.length ||
+      // Never over water: a forced jump with a monkey swinging into it is
+      // a death with no way out, which is the one thing the river rules
+      // exist to prevent.
+      (river && river.crossings.some((c) => near(c.x, c.w)))
+    ) {
+      this.distanceUntilNext = 150;
+      return;
+    }
+    swingers.push(new Swinger(spawnX, frames));
+    this.distanceUntilNext = SWINGER.gapMin +
+      Math.random() * (SWINGER.gapMax - SWINGER.gapMin);
+  }
+}
+
 // Sends the odd bluebird across once the score allows, only through
 // airspace where no jump is being forced.
 class BirdSpawner {
@@ -3669,9 +3890,11 @@ class Game {
     this.acornSpawner = new AcornSpawner(this.groundY);
     this.dogDirector = new DogDirector(this.groundY);
     this.birdSpawner = new BirdSpawner(this.groundY);
+    this.swingerSpawner = new SwingerSpawner();
     // Only settings that ask for one have a river; the rest never do.
     this.river = new River(this.groundY);
     this.birds = [];
+    this.swingers = [];
 
     this.state = "ready"; // ready | running | gameover
     this.obstacles = [];
@@ -3988,8 +4211,10 @@ class Game {
     this.acornSpawner.reset();
     this.dogDirector.reset();
     this.birdSpawner.reset();
+    this.swingerSpawner.reset();
     this.river.reset();
     this.birds = [];
+    this.swingers = [];
   }
 
   /* Moves to the next level: swaps the theme, loads whatever art that
@@ -4155,6 +4380,7 @@ class Game {
     this.acornSpawner.distanceUntilNext = Infinity;
     this.dogDirector.distanceUntilNext = Infinity;
     this.birdSpawner.distanceUntilNext = Infinity;
+    this.swingerSpawner.distanceUntilNext = Infinity;
     for (const d of this.dogDirector.dogs) {
       if (d.state === "chasing") d.state = "tiring"; // any pursuer gives up
     }
@@ -4165,7 +4391,7 @@ class Game {
     if (f.holeX === null) {
       f.lead -= dt;
       // Wait for a clear run-in before the burrow appears.
-      if (f.lead <= 0 && !this.obstacles.length && !this.birds.length) {
+      if (f.lead <= 0 && !this.obstacles.length && !this.birds.length && !this.swingers.length) {
         f.holeX = GAME_W + 60;
       }
       return;
@@ -4404,6 +4630,13 @@ class Game {
     const foxFront = this.fox.getHitbox().x;
     for (const b of this.birds) b.update(dt, this.speed, foxFront);
     this.birds = this.birds.filter((b) => !b.isOffscreen());
+    this.swingerSpawner.update(
+      dt, this.speed, this.score, this.swingers, this.obstacles,
+      this.dogDirector.dogs, this.acorns, this.spawner,
+      THEME.river ? this.river : null, this.images.monkeySwing
+    );
+    for (const sw of this.swingers) sw.update(dt, this.speed);
+    this.swingers = this.swingers.filter((sw) => !sw.isOffscreen());
 
     /* Thrown acorns hit one thing each: whichever dog or bird they
      * actually meet. Aim used to decide the target - back could only stop
@@ -4429,10 +4662,22 @@ class Game {
       if (spent) continue;
       for (const b of this.birds) {
         if (!b.falling && intersects(box, b.getHitbox())) {
-          shot.dead = true;
+          shot.dead = spent = true;
           b.knockDown();
           this.birdsDropped++;
           this.awardBonus(SCORING.bird, b.x + b.w / 2, b.y);
+          sound.sfx("stun");
+          break;
+        }
+      }
+      if (spent) continue;
+      // A monkey hangs high, so this is mostly what the UP throw is for.
+      for (const sw of this.swingers) {
+        if (!sw.falling && intersects(box, sw.getHitbox())) {
+          shot.dead = true;
+          sw.knockDown();
+          this.birdsDropped++;
+          this.awardBonus(SCORING.bird, sw.x + sw.w / 2, sw.y);
           sound.sfx("stun");
           break;
         }
@@ -4451,6 +4696,14 @@ class Game {
       for (const b of this.birds) {
         // One already knocked down is tumbling, not hunting.
         if (!b.falling && intersects(foxBox, b.getHitbox())) {
+          this.endRun();
+          break;
+        }
+      }
+    }
+    if (this.state === "running") {
+      for (const sw of this.swingers) {
+        if (!sw.falling && intersects(foxBox, sw.getHitbox())) {
           this.endRun();
           break;
         }
@@ -5217,6 +5470,7 @@ class Game {
     for (const ob of this.obstacles) ob.draw(ctx);
     for (const ac of this.acorns) ac.draw(ctx);
     for (const d of this.dogDirector.dogs) d.draw(ctx);
+    for (const sw of this.swingers) sw.draw(ctx, this.images);
     for (const b of this.birds) b.draw(ctx, this.images);
     const diving = this.finish && this.finish.diveT > 0;
     if (diving) {
@@ -5367,6 +5621,7 @@ class Game {
     this.obstacles = [];
     this.acorns = [];
     this.birds = [];
+    this.swingers = [];
     this.shots = [];
     this.popups = [];
     this.chaseUrge = 0;
